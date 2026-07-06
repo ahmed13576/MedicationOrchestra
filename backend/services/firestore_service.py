@@ -80,8 +80,10 @@ def update_medication_generic(
             "grounded_at": datetime.utcnow(),
         })
         logger.info(f"Firestore: updated generic_name for med {med_id} → '{generic_name}'")
+        touch_household_updated_at(user_id)
     except Exception as e:
         logger.warning(f"Firestore: failed to update generic for {med_id}: {e}")
+
 
 
 async def get_profiles(user_id: str) -> list:
@@ -135,6 +137,7 @@ async def update_medication(
         )
         ref.update({**updates, "updated_at": datetime.utcnow()})
         logger.info(f"Firestore: updated medication {med_id}")
+        touch_household_updated_at(user_id)
     await asyncio.to_thread(_update)
 
 
@@ -148,7 +151,9 @@ async def delete_medication(user_id: str, profile_id: str, med_id: str) -> None:
         )
         ref.update({"status": "inactive", "deleted_at": datetime.utcnow()})
         logger.info(f"Firestore: soft-deleted medication {med_id}")
+        touch_household_updated_at(user_id)
     await asyncio.to_thread(_delete)
+
 
 
 # ---------------------------------------------------------------------------
