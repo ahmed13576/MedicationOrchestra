@@ -1,0 +1,40 @@
+brand_name,generic_name,category
+Crocin,Paracetamol,Analgesic/Antipyretic
+Dolo,Paracetamol,Analgesic/Antipyretic
+Combiflam,Ibuprofen + Paracetamol,NSAID/Analgesic
+Brufen,Ibuprofen,NSAID
+Disprin,Aspirin,NSAID/Antiplatelet
+Ecosprin,Aspirin,NSAID/Antiplatelet
+Metformin SR,Metformin,Antidiabetic
+Glycomet,Metformin,Antidiabetic
+Telma,Telmisartan,Antihypertensive
+Amlodac,Amlodipine,Antihypertensive
+Stamlo,Amlodipine,Antihypertensive
+Atorlip,Atorvastatin,Statin
+Rozavel,Rosuvastatin,Statin
+Pantop,Pantoprazole,PPI
+Pan,Pantoprazole,PPI
+Omez,Omeprazole,PPI
+Cipla Azithromycin,Azithromycin,Antibiotic
+Azithral,Azithromycin,Antibiotic
+Mox,Amoxicillin,Antibiotic
+Augmentin,Amoxicillin + Clavulanate,Antibiotic
+Warfarin (Warf),Warfarin,Anticoagulant
+Clexane,Enoxaparin,Anticoagulant
+Thyronorm,Levothyroxine,Thyroid
+Eltroxin,Levothyroxine,Thyroid
+Xarelto,Rivaroxaban,Anticoagulant
+Shelcal,Calcium + Vitamin D3,Supplement
+Shelcal CT,Calcium + Vitamin D3,Supplement
+Becosules,B-Complex + Vitamin C,Supplement
+Revital,Multivitamin,Supplement
+Alprazolam (Alprax),Alprazolam,Benzodiazepine
+Restyl,Alprazolam,Benzodiazepine
+Lonazep,Clonazepam,Benzodiazepine
+Nexito,Escitalopram,SSRI
+Stalopam,Escitalopram,SSRI
+Serta,Sertraline,SSRI
+Paroxetine (Pari),Paroxetine,SSRI
+Amitriptyline (Sarotena),Amitriptyline,TCA
+Tramadol (Tramazac),Tramadol,Opioid Analgesic
+Pregabalin (Pregeb),Pregabalin,Anticonvulsant
