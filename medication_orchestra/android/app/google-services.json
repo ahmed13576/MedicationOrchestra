@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "327663548819",
+    "project_id": "project-f9540f8f-d01e-47d3-a36",
+    "storage_bucket": "project-f9540f8f-d01e-47d3-a36.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:327663548819:android:5e1214c01ff908ab8c9066",
+        "android_client_info": {
+          "package_name": "com.medicationorchestra.medication_orchestra"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCmtyPbk3aumrBgBeLPJKmV1nJLriKG0U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

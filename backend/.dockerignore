@@ -1,0 +1,25 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# --- Secrets (NEVER include in image) ---
+service-account.json
+.env
+*.env
+
+# --- Vector Search ---
+vector_search_config.json
+data/
+
+# --- Logs ---
+*.log
+
+# --- Dev artifacts ---
+.coverage
+htmlcov/
+dist/
+build/
