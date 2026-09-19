@@ -94,7 +94,9 @@ something to report. The app itself is the real one — same engine, same rules.
 curl -s localhost:8080/api/v1/interactions -H 'Authorization: Bearer demo'
 curl -s -X POST localhost:8080/api/v1/schedule/generate -H 'Authorization: Bearer demo'
 ```
-It prints a warning banner and binds to all interfaces: never expose it.
+It prints a warning banner and binds to all interfaces: never expose it. Opening
+`http://localhost:8080/` in a browser shows a small page with the endpoints and
+the ready-to-paste curl commands; `/docs` is the generated API reference.
 
 ### Backend against real Google Cloud
 ```bash

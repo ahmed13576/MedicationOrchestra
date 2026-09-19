@@ -178,6 +178,60 @@ def seed(store) -> None:
     }
 
 
+DEMO_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medication Orchestra - local demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 46rem; padding: 2rem 1.25rem; }
+  h1 { font-size: 1.35rem; margin-bottom: .25rem; }
+  .sub { color: #666; margin-top: 0; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  pre { background: #f4f4f5; padding: .75rem; border-radius: 6px; overflow-x: auto; }
+  section { margin-top: 1.75rem; }
+  h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+  a { color: #1a73e8; }
+  .warn { background: #fff4e5; border: 1px solid #ffcc80; border-radius: 6px; padding: .75rem; }
+</style>
+</head>
+<body>
+<h1>Medication Orchestra - local demo</h1>
+<p class="sub">The real application, running against an in-memory Firestore with a demo household.
+Every clinical rule, the interaction engine and the schedule solver are the shipped ones.</p>
+
+<p class="warn"><strong>This process has no authentication.</strong> It binds to all interfaces and
+stores nothing. Never expose it outside your machine.</p>
+
+<section>
+<h2>Try it</h2>
+<ul>
+  <li><a href="/docs">/docs</a> - the generated API reference (FastAPI)</li>
+  <li><a href="/health">/health</a> - the knowledge base that is loaded, and its review status</li>
+  <li><a href="/readyz">/readyz</a> - readiness, with minimum thresholds</li>
+</ul>
+</section>
+
+<section>
+<h2>From a terminal</h2>
+<pre>curl -s localhost:8080/health | python3 -m json.tool
+
+curl -s "localhost:8080/api/v1/interactions" \
+  -H 'Authorization: Bearer demo' | python3 -m json.tool
+
+curl -s -X POST "localhost:8080/api/v1/schedule/generate" \
+  -H 'Authorization: Bearer demo' | python3 -m json.tool</pre>
+<p>Dad's list is deliberately dangerous: warfarin, Brufen, Combiflam, Dolo 650,
+Ecosprin, Clopilet, plus one entry that cannot be read. Expect real findings, an
+honest coverage ledger, and a schedule that reports what it could not place.</p>
+</section>
+</body>
+</html>
+"""
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -192,6 +246,14 @@ def main() -> None:
     seed(store)
     app_module.db = store
     firestore_service.db = store
+
+    # A landing page, so the demo explains itself when opened in a browser.
+    # Production serves `/` as a 404 and has no such route.
+    from fastapi.responses import HTMLResponse
+
+    @app_module.app.get("/", include_in_schema=False)
+    async def demo_index() -> HTMLResponse:
+        return HTMLResponse(DEMO_PAGE)
 
     print(f"""
   Knowledge base : {app_module.REGISTRY.describe()}
