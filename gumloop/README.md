@@ -1,22 +1,20 @@
-# Sprint skills — superseded
+# Sprint skills (partial)
 
-These files are the day-by-day build plan from the original prototype sprint.
-They are kept for history, with one important correction.
+The day-by-day build instructions from the original hackathon sprint. Most of
+them were deleted — see [docs/HISTORY.md](../docs/HISTORY.md) for what went and
+why:
 
-**Two of them were removed:**
+* `01-project-setupSKILL.md` — scaffolded the ADK/Vector Search layout
+* `03-rag-interaction-checkerSKILL.md` — built the DrugBank corpus and the RAG index
+* `04-adk-orchestration-fcmSKILL.md` — built the agents that decided clinical questions
+* `*agents.txt` — project context telling the next contributor not to deviate
+  from that design
 
-* `03-rag-interaction-checkerSKILL.md` instructed the team to download the
-  **DrugBank DDI corpus** and index it in Vertex AI Vector Search. That corpus
-  cannot be used commercially (see `docs/KNOWLEDGE_SOURCES.md`), and the
-  severity-free pair list it produced is what made the deployed app answer
-  "no interactions found". It is replaced by a curated, cited knowledge base and
-  a deterministic engine.
-* `04-adk-orchestration-fcmSKILL.md` described ADK agents that decided clinical
-  questions and generated schedules. The model no longer makes clinical
-  decisions, and the agent classes were deleted.
+What remains is the part that still matches the shipped system:
 
-**`sanity_check.py` was also removed** from the repository root: it scanned
-`main.py` for undefined names, which Ruff (`F821`) now does for the whole backend
-on every push, alongside the test-suite and the safety invariant audit.
+* `02-gemini-vision-intakeSKILL.md` — reading a prescription photo. The model
+  extracts text; identity, interaction checking and scheduling are deterministic.
+* `05-flutter-uiSKILL.md` — the Flutter screens and their severity colours.
 
-The shipped design is described in the root `README.md` and `docs/API.md`.
+The current design and the rules for changing it are in the root
+[README.md](../README.md) and [docs/](../docs).
