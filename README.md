@@ -110,7 +110,7 @@ Health: `curl localhost:8080/health` · readiness: `curl localhost:8080/readyz`
 
 ### Tests (no credentials, no network — the cloud clients are stubbed)
 ```bash
-cd backend && python -m pytest tests/ -q          # 129 tests
+cd backend && python -m pytest tests/ -q          # 137 tests
 python scripts/safety_invariant_audit.py          # 43 checks, exits 0 only if every invariant holds
 ```
 
@@ -154,8 +154,14 @@ any violation. The ten invariants:
 
 ## Cloud Run deployment
 
+The same deployment exists for both platforms, and both end with the same smoke
+test:
+
 ```powershell
-.\deploy.ps1 -ProjectId my-project-123          # project, region and names are parameters
+.\deploy.ps1 -ProjectId my-project-123          # Windows
+```
+```bash
+./deploy.sh --project my-project-123            # Linux / macOS
 ```
 
 It takes the project from `-ProjectId`, `$env:GOOGLE_CLOUD_PROJECT`, or your
@@ -187,10 +193,10 @@ backend/
 ├── services/                # registry, engine, model surfaces, auth, audit, limits, images
 ├── agents/agent_security.py # input sanitisation + output validation
 ├── dev_server.py            # run the real app locally with no credentials
-└── tests/                   # 129 tests, the in-memory Firestore fake, strip fixtures
+└── tests/                   # 137 tests, the in-memory Firestore fake, strip fixtures
 medication_orchestra/        # Flutter client
 scripts/safety_invariant_audit.py
-deploy.ps1                   # Cloud Run deploy, smoke-tested
+deploy.ps1 / deploy.sh       # Cloud Run deploy, smoke-tested (same gates in both)
 monitoring_setup.ps1         # dashboard + 5xx log metric
 docs/                        # API, knowledge sources, security & privacy, history, review, plan
 ```
