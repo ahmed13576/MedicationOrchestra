@@ -102,9 +102,13 @@ above are the ones that must be closed before onboarding any paying household.
   `requirements-dev.txt` carries the tooling. CI runs `pip-audit --strict`.
 * The container runs as a non-root user and is built without the test directory.
   CI asserts that no secret file is present in the image.
-* No hardcoded GCP project id remains anywhere
-  (`test_no_hardcoded_project_id_anywhere`); the previous tree had one in eight
-  files.
+* No GCP project id appears in the backend, the scripts or the deployment config
+  (`test_no_project_id_outside_the_client_firebase_config`). The previous tree
+  hardcoded one in eight files. The three exceptions are the client's generated
+  Firebase configuration — `medication_orchestra/firebase.json`,
+  `lib/firebase_options.dart` and `android/app/google-services.json` — which name
+  the **demo** project and must be regenerated with `flutterfire configure`
+  before any real deployment (docs/HANDOFF.md, task S-1).
 
 ## 7. Emergency-path specifics (SOS)
 

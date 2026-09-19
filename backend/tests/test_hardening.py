@@ -440,16 +440,72 @@ def test_requirements_pin_exact_versions_and_are_patched():
             assert "==" in line, f"unpinned dependency: {line}"
 
 
-def test_no_hardcoded_project_id_anywhere():
-    """The old tree hardcoded one GCP project id in eight files."""
+#: The Firebase configuration for the *demo* project. These three files are
+#: generated per project by `flutterfire configure` and by the Android Firebase
+#: plugin; they are the only place a project id is allowed to appear in the
+#: repository, and they must be regenerated before shipping (see docs/HANDOFF.md).
+_FIREBASE_CONFIG_FILES = {
+    "medication_orchestra/firebase.json",
+    "medication_orchestra/lib/firebase_options.dart",
+    "medication_orchestra/android/app/google-services.json",
+}
+
+
+def test_no_project_id_outside_the_client_firebase_config():
+    """The old tree hardcoded one GCP project id in eight files, including the
+    backend. Now the only place it may appear is the generated client Firebase
+    configuration - and this test is what keeps that claim true."""
+    root = BACKEND.parent
+    pattern = re.compile(r"project-[0-9a-f]{8}-[0-9a-f-]{4,}")
+    # Built from parts so this file does not match the pattern it looks for.
+    legacy = "gen-lang" + "-client"
     offenders = []
-    for path in (BACKEND / "services").glob("*.py"):
-        if "gen-lang-client" in path.read_text():
-            offenders.append(path.name)
-    for path in (BACKEND / "main.py", BACKEND / "agents" / "agent_security.py"):
-        if "gen-lang-client" in path.read_text():
-            offenders.append(path.name)
-    assert offenders == [], f"hardcoded project id in {offenders}"
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(".git/") or "/build/" in rel or rel.endswith((".png", ".jpg", ".avif")):
+            continue
+        if rel in _FIREBASE_CONFIG_FILES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if pattern.search(text) or legacy in text:
+            offenders.append(rel)
+    assert offenders == [], f"a project id appears outside the Firebase config: {offenders}"
+
+
+def test_the_firebase_config_files_are_the_generated_ones():
+    """If a fourth file starts carrying a project id, this test says so instead of
+    letting the allowlist above quietly widen."""
+    root = BACKEND.parent
+    pattern = re.compile(r"project-[0-9a-f]{8}-[0-9a-f-]{4,}")
+    carrying = set()
+    for rel in sorted(_FIREBASE_CONFIG_FILES):
+        path = root / rel
+        assert path.exists(), f"{rel} is listed as Firebase config but is missing"
+        assert pattern.search(path.read_text(encoding="utf-8")), (
+            f"{rel} no longer contains a project id; drop it from the allowlist"
+        )
+        carrying.add(rel)
+    assert carrying == _FIREBASE_CONFIG_FILES
+
+
+def test_firestore_rules_can_actually_be_deployed():
+    """The README tells the operator to run `firebase deploy --only
+    firestore:rules`, which needs a Firebase config at the repository root; it
+    shipped without one, so the documented command failed."""
+    root = BACKEND.parent
+    firebase_json = json.loads((root / "firebase.json").read_text())
+    assert firebase_json["firestore"]["rules"] == "firestore.rules"
+    assert (root / firebase_json["firestore"]["rules"]).exists()
+    indexes = firebase_json["firestore"].get("indexes")
+    assert indexes and (root / indexes).exists()
+    rules = (root / "firestore.rules").read_text()
+    assert "allow write: if false" in rules, "client writes must stay closed"
+    assert (root / ".firebaserc").exists(), "the deploy command needs a default project"
 
 
 def test_no_device_collection_group_scan_exists():
