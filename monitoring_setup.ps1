@@ -14,10 +14,27 @@
         .\monitoring_setup.ps1
 #>
 
-# ---- Configuration (must match deploy.ps1) -----------------------------------
-$PROJECT_ID   = "project-f9540f8f-d01e-47d3-a36"
-$REGION       = "us-central1"
-$SERVICE_NAME = "medication-orchestra-backend"
+# ---- Parameters (must match deploy.ps1) -------------------------------------
+[CmdletBinding()]
+param(
+    [string]$ProjectId = $env:GOOGLE_CLOUD_PROJECT,
+    [string]$Region = $(if ($env:REGION) { $env:REGION } else { "us-central1" }),
+    [string]$ServiceName = "medication-orchestra-backend"
+)
+
+$ErrorActionPreference = "Stop"
+
+if (-not $ProjectId) {
+    $ProjectId = (gcloud config get-value project 2>$null)
+    if (-not $ProjectId -or $ProjectId -eq "(unset)") {
+        Write-Host "ERROR: no project. Pass -ProjectId, set GOOGLE_CLOUD_PROJECT, or run 'gcloud config set project <id>'." -ForegroundColor Red
+        exit 2
+    }
+}
+
+$PROJECT_ID   = $ProjectId
+$REGION       = $Region
+$SERVICE_NAME = $ServiceName
 
 # ---- Helper ------------------------------------------------------------------
 function Write-Step([string]$msg) {
@@ -39,6 +56,9 @@ try {
     Write-Host "=====================================================" -ForegroundColor Blue
     Write-Host " Medication Orchestra -- Monitoring Setup" -ForegroundColor Blue
     Write-Host "=====================================================" -ForegroundColor Blue
+    Write-Host " Project : $PROJECT_ID"
+    Write-Host " Region  : $REGION"
+    Write-Host " Service : $SERVICE_NAME"
 
     # ---- Step 1: Upload Dashboard --------------------------------------------
     Write-Step "Step 1/3 -- Uploading 4-chart monitoring dashboard..."

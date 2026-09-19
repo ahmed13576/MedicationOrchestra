@@ -492,3 +492,33 @@ def test_unresolved_medicine_is_not_counted_as_checked(registry):
     )
     assert unchecked and unchecked[0].reason
     assert alerts == []
+
+
+def test_real_strip_photos_are_accepted_and_within_limits():
+    """The fixtures are real Indian medicine-strip photos in AVIF, the format the
+    app actually receives from Android. The sniffer must accept all of them, and
+    the size guard must not reject a normal phone photo."""
+    fixtures = sorted((Path(__file__).resolve().parent / "fixtures").glob("*.avif"))
+    assert len(fixtures) >= 5, f"expected the strip fixtures, found {len(fixtures)}"
+    from services.image_service import MAX_UPLOAD_BYTES, sniff_mime
+
+    for path in fixtures:
+        data = path.read_bytes()
+        assert sniff_mime(data) == "image/avif", f"{path.name} was not recognised"
+        assert len(data) < MAX_UPLOAD_BYTES, (
+            f"{path.name} is {len(data)} bytes, at or over the {MAX_UPLOAD_BYTES}-byte "
+            "upload limit the app enforces"
+        )
+
+
+def test_avif_is_transcoded_before_it_reaches_the_model():
+    """Vertex AI was being sent `mime_type='image/jpeg'` for every upload,
+    including AVIF and HEIC, which the model then failed to read. The service
+    must convert to a format the model accepts rather than relabel it."""
+    fixture = Path(__file__).resolve().parent / "fixtures" / "warfarin.avif"
+    from services.image_service import prepare_image
+
+    prepared = prepare_image(fixture.read_bytes())
+    assert prepared.mime_type in ("image/jpeg", "image/png"), prepared.mime_type
+    assert prepared.mime_type != "image/avif"
+    assert prepared.data != fixture.read_bytes(), "the image was passed through unconverted"
