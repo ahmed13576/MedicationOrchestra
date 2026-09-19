@@ -84,8 +84,9 @@ identical with the model unreachable.
 | Right to access | `GET /api/v1/users/export` returns profiles, medicines, settings and the audit trail as one JSON document | implemented |
 | Right to erasure | `DELETE /api/v1/users/data?confirm=DELETE_MY_DATA`, confirmed explicitly so a stray tap cannot erase a history; erasure is audited | implemented |
 | Data minimisation | images are processed and discarded, never stored; only extracted text is kept | implemented |
-| Breach notification | not implemented | **open** |
-| Published privacy notice + grievance officer | not implemented | **open** |
+| Breach notification | runbook in section 10 (72-hour Board and person notification, roles, evidence handling) | documented, untested against a real incident |
+| Published privacy notice + grievance officer | `docs/PRIVACY_NOTICE.md` (English) and `docs/PRIVACY_NOTICE.hi.md` (Hindi); officer contact in section 11 | written; **the officer name, email and postal address must be filled in before launch** |
+| Data residency and sub-processors | section 9; enforced by the deploy scripts | implemented |
 | Consent manager integration (DPDP Rules phase, 2026-11) | not started | **open** |
 
 Timeline: the DPDP Rules were notified on 2025-11-13. Board obligations apply
@@ -127,9 +128,88 @@ up a document that was never written. Now:
 * per-contact cooldown (`sos_rate_limit_hours`, default 2) prevents notification
   fatigue, and the sender is rate-limited separately.
 
+## 9. Where the data lives, and who else touches it
+
+**Region.** All health data is stored and processed in India. Firestore runs in
+`asia-south1` (Mumbai) and the backend deploys to the same region. `deploy.sh`
+and `deploy.ps1` refuse any region outside `DATA_REGIONS`
+(`asia-south1 asia-south2`) and say why: a deployment is the moment residency is
+actually decided, so the script is where it is enforced, not a wiki page.
+`tests/test_deployment_scripts.py` pins the default and the refusal.
+
+**Sub-processors.** These are the third parties that can see personal data, what
+they see, and why. The privacy notice names the same list; the two must not
+drift.
+
+| Sub-processor | What it processes | Purpose | Region |
+|---|---|---|---|
+| Google Cloud Firestore | profiles, medicine names and dosages, allergies, schedules, audit trail | primary datastore | asia-south1 (India) |
+| Google Cloud Run | every request in transit | runs the backend | asia-south1 (India) |
+| Google Vertex AI (Gemini) | the prescription image and the extracted text; the curated finding text sent for rephrasing | reading a prescription photo, plain-language phrasing | India / multi-region per Vertex configuration |
+| Firebase Authentication | phone number or email, device identifiers | sign-in | Google global identity infrastructure |
+| Firebase Cloud Messaging | device token, the alert text | delivering SOS alerts | Google global infrastructure |
+
+No analytics SDK, no advertising SDK, no data broker, and no sale or sharing of
+personal data for anyone else's purposes. Prescription images are processed and
+discarded; only the extracted text is stored.
+
+**Retention.** Health data is kept while the account is open and for 30 days
+after a consent withdrawal (`deletion_due_at`), so a household can change its
+mind. `DELETE /api/v1/users/data` erases immediately. The audit trail, which
+holds no health data, is retained to demonstrate what happened.
+
+## 10. Breach notification runbook
+
+DPDP Act 2023 requires notifying the Data Protection Board **and** every
+affected person, without a materiality threshold - a small breach is still a
+notifiable breach. Speed matters more than a complete picture.
+
+**Hour 0-1 - contain and record.** Whoever notices raises it; no waiting for a
+manager. Revoke the credential or roll back the deployment. Start an incident
+note with a timestamp, and do not clean logs - they are the evidence.
+
+**Hour 1-6 - scope.** From the audit trail (`users/{uid}/audit`), establish which
+users, which data categories, and the window. If the trail cannot answer it,
+assume the wider scope and say so.
+
+**Within 72 hours - notify.**
+1. Data Protection Board of India, through the Board's intimation mechanism:
+   nature and extent of the breach, categories and approximate number of people
+   affected, likely consequences, measures taken.
+2. Every affected person, in the app and by their registered contact, in English
+   and Hindi: what happened, what data, what they should do, who to contact.
+   Plain sentences, no legal fog.
+
+**Within 72 hours and after - remediate.** Root-cause note, the fix, the test
+that would have caught it, and the entry added to this document. An incident
+with no test added is an incident that will recur.
+
+**Roles.** Grievance Officer (below) owns notification and the person-facing
+communication. The engineer on the incident owns containment and the scope
+note.
+
+## 11. Grievance officer and how to reach us
+
+Every DPDP notice must name a person, not a form.
+
+* **Grievance Officer:** _to be named before launch_ - the founder acts until a
+  dedicated officer is appointed.
+* **Email:** `privacy@` the product domain (to be registered before launch).
+* **Postal address:** _to be added before launch_ (DPDP requires a physical
+  address for the Data Fiduciary).
+* **Response time:** acknowledgement within 72 hours, resolution within 30 days.
+* **Escalation:** if unresolved, a household may complain to the Data Protection
+  Board of India.
+
+These three placeholders are deliberately visible: the notice cannot be
+published until they are real, and a launch checklist that hides them is worse
+than one that shows them.
+
 ## 8. Known gaps
 
-1. No published privacy notice, no grievance officer, no breach-notification runbook.
+1. The privacy notice is written but not published, and the grievance officer's
+   name, email and postal address are still placeholders (section 11). No
+   household may be onboarded until they are real.
 2. No penetration test; no third-party security review.
 3. Cloud Run ingress is not restricted to the load balancer in `deploy.ps1`
    (`--allow-unauthenticated` with auth enforced in-app); an IAP or

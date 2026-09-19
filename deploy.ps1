@@ -20,7 +20,8 @@
     project gcloud is configured with.
 
 .PARAMETER Region
-    Cloud Run region. Default: us-central1
+    Cloud Run region. Default: asia-south1 (Mumbai). Health data stays in India;
+    a region outside -DataRegions is refused.
 
 .EXAMPLE
     .\deploy.ps1 -ProjectId my-project-123
@@ -32,7 +33,8 @@
 [CmdletBinding()]
 param(
     [string]$ProjectId = $env:GOOGLE_CLOUD_PROJECT,
-    [string]$Region = $(if ($env:REGION) { $env:REGION } else { "us-central1" }),
+    [string]$Region = $(if ($env:REGION) { $env:REGION } else { "asia-south1" }),
+    [string[]]$DataRegions = $(if ($env:DATA_REGIONS) { $env:DATA_REGIONS -split '\s+' } else { @("asia-south1", "asia-south2") }),
     [string]$ServiceName = "medication-orchestra-backend",
     [string]$SaName = "medication-orchestra-sa",
     [string]$RepoName = "medication-orchestra",
@@ -50,6 +52,16 @@ if (-not $ProjectId) {
         exit 2
     }
 }
+# Health data about Indian households stays in India. A region outside
+# $DataRegions is refused rather than silently accepted.
+if ($DataRegions -notcontains $Region) {
+    Write-Host "ERROR: refusing to deploy health data to '$Region'." -ForegroundColor Red
+    Write-Host "       Permitted regions: $($DataRegions -join ', ')." -ForegroundColor Red
+    Write-Host "       The privacy notice tells households their data is stored in India" -ForegroundColor Red
+    Write-Host "       (docs/SECURITY_AND_PRIVACY.md, section 9). Change the notice first." -ForegroundColor Red
+    exit 2
+}
+
 $SA_EMAIL = "$SaName@$ProjectId.iam.gserviceaccount.com"
 $IMAGE = "$Region-docker.pkg.dev/$ProjectId/$RepoName/$ServiceName"
 

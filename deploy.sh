@@ -5,7 +5,7 @@
 # ends with the same smoke test: the service must be ready, its knowledge base
 # must be loaded, and an unauthenticated request must be rejected.
 #
-#   ./deploy.sh --project my-project-123 [--region us-central1]
+#   ./deploy.sh --project my-project-123 [--region asia-south1]
 #               [--allow-unauthenticated] [--skip-smoke-test]
 #
 # Project resolution order: --project, $GOOGLE_CLOUD_PROJECT, `gcloud config`.
@@ -13,7 +13,11 @@
 set -euo pipefail
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
-REGION="${REGION:-us-central1}"
+# Health data about Indian households stays in India. asia-south1 (Mumbai) is
+# the default, and a region outside DATA_REGIONS is refused rather than
+# silently accepted - a deployment is the moment residency is actually decided.
+REGION="${REGION:-asia-south1}"
+DATA_REGIONS="${DATA_REGIONS:-asia-south1 asia-south2}"
 SERVICE_NAME="medication-orchestra-backend"
 SA_NAME="medication-orchestra-sa"
 REPO_NAME="medication-orchestra"
@@ -37,6 +41,23 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
 done
+
+region_allowed() {
+    local candidate="$1" allowed
+    for allowed in $DATA_REGIONS; do
+        [[ "$candidate" == "$allowed" ]] && return 0
+    done
+    return 1
+}
+
+if ! region_allowed "$REGION"; then
+    echo "ERROR: refusing to deploy health data to '$REGION'." >&2
+    echo "       Permitted regions: ${DATA_REGIONS}." >&2
+    echo "       The privacy notice tells households their data is stored in India" >&2
+    echo "       (docs/SECURITY_AND_PRIVACY.md, section 9). Change the notice first," >&2
+    echo "       then DATA_REGIONS - not the other way round." >&2
+    exit 2
+fi
 
 for tool in gcloud python3 curl; do
     command -v "$tool" >/dev/null || { echo "ERROR: $tool is required but not installed." >&2; exit 2; }

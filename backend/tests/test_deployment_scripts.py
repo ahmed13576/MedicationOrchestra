@@ -135,3 +135,57 @@ def test_shell_scripts_parse():
             ["bash", "-n", str(script)], capture_output=True, text=True
         )
         assert result.returncode == 0, f"{script.name} has a syntax error: {result.stderr}"
+
+
+# ── D-5 · Data residency is decided at deploy time ───────────────────────────
+
+
+def test_the_default_region_keeps_health_data_in_india():
+    """A default is a decision. us-central1 put Indian households' medicine
+    records in Iowa without anyone choosing it."""
+    assert 'REGION="${REGION:-asia-south1}"' in DEPLOY_SH.read_text()
+    assert '"asia-south1"' in DEPLOY_PS1.read_text()
+    assert "us-central1" not in DEPLOY_SH.read_text()
+    assert "us-central1" not in DEPLOY_PS1.read_text()
+
+
+def test_a_region_outside_india_is_refused_not_warned_about():
+    text = DEPLOY_SH.read_text()
+    assert "region_allowed" in text
+    assert "refusing to deploy health data" in text
+    assert "DATA_REGIONS" in text
+    # The refusal must exit, not print and carry on.
+    refusal = text[text.index("if ! region_allowed"):]
+    assert "exit 2" in refusal[:800]
+    ps = DEPLOY_PS1.read_text()
+    assert "DataRegions -notcontains" in ps and "exit 2" in ps
+
+
+def test_the_privacy_notice_exists_in_english_and_hindi():
+    english = ROOT / "docs" / "PRIVACY_NOTICE.md"
+    hindi = ROOT / "docs" / "PRIVACY_NOTICE.hi.md"
+    assert english.is_file() and hindi.is_file()
+    for path in (english, hindi):
+        body = path.read_text()
+        assert "asia-south1" in body           # where the data lives
+        assert "72" in body                    # breach notification promise
+        assert "Vertex AI" in body             # sub-processors named
+    assert "गोपनीयता" in hindi.read_text()
+
+
+def test_the_sub_processor_list_and_the_notice_do_not_drift():
+    """Two lists of the same third parties is two chances to be wrong."""
+    privacy = (ROOT / "docs" / "SECURITY_AND_PRIVACY.md").read_text()
+    notice = (ROOT / "docs" / "PRIVACY_NOTICE.md").read_text()
+    for party in ("Firestore", "Cloud Run", "Vertex AI",
+                  "Firebase Authentication", "Firebase Cloud Messaging"):
+        assert party in privacy, party
+        assert party in notice, party
+
+
+def test_the_breach_runbook_names_who_is_told_and_how_fast():
+    body = (ROOT / "docs" / "SECURITY_AND_PRIVACY.md").read_text()
+    assert "Breach notification runbook" in body
+    assert "Data Protection Board of India" in body
+    assert "72 hours" in body
+    assert "Grievance Officer" in body
