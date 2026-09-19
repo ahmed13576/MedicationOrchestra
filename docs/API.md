@@ -201,8 +201,11 @@ the finished schedule with an independent checker** before returning it.
     "unscheduled": [], "conflicts": [],
     "safety_notes": ["…"],
     "schedule_status": "verified",            // verified | partial | unsafe_conflict
-    "verification": { "verified": true, "violations": [], "checked_alerts": 1,
-                      "checked_at_slots": 3 },
+    "verification": { "verified_against_rules": true, "violations": [],
+                      "rules_checked": ["ddi_warfarin_nsaid"],
+                      "checked_alerts": 1, "checked_at_slots": 3,
+                      "knowledge_version": { "ingredients": "1.0.0",
+                                             "interactions": "1.1.3" } },
     "generated_by": "deterministic_solver",
     "knowledge_base": { "…": "…" },
     "review_status": "DEMONSTRATION SET - not clinician-reviewed",

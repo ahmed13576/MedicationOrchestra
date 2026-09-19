@@ -423,7 +423,7 @@ def test_schedule_is_verified_and_reports_partial_feasibility(api):
     })
     body = api.post("/api/v1/schedule/generate").json()
     schedule = body["schedules"][0]
-    assert schedule["verification"]["verified"] is True
+    assert schedule["verification"]["verified_against_rules"] is True
     assert schedule["verification"]["violations"] == []
     assert schedule["schedule_status"] != "unsafe_conflict"
     assert schedule["generated_by"] == "deterministic_solver"

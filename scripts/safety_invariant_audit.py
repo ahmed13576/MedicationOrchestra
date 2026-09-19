@@ -531,7 +531,7 @@ def inv_6_schedule(harness: Harness) -> None:
 
     check(
         "INV-6",
-        schedule["verification"]["verified"] is True
+        schedule["verification"]["verified_against_rules"] is True
         and schedule["verification"]["violations"] == []
         and schedule["schedule_status"] != "unsafe_conflict",
         f"the finished schedule passes independent verification "
@@ -557,7 +557,7 @@ def inv_6_schedule(harness: Harness) -> None:
     }
     result = verify_schedule(tampered, body["interactions"])
     check(
-        "INV-6", result["verified"] is False,
+        "INV-6", result["verified_against_rules"] is False,
         "the independent verifier rejects a hand-written schedule that co-locates them",
         "the verifier accepted a schedule that violates the required gap",
     )

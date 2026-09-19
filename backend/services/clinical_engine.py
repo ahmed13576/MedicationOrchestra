@@ -1163,16 +1163,26 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
     Deliberately re-derives slot occupancy from the schedule payload rather than
     trusting the builder's bookkeeping, so a bug in `build_schedule` cannot
     produce a schedule that silently passes verification.
+
+    The boolean is named ``verified_against_rules`` (not ``verified``) because it
+    only means "no rule the verifier checked was violated" — it is not a medical
+    safety claim. ``rules_checked`` lists which rules were examined and
+    ``knowledge_version`` records which knowledge base the check ran against, so a
+    cached schedule can be detected as stale after a rule is corrected.
     """
     violations: list[dict] = []
     dose_times = schedule.get("dose_times") or []
     slot_ids = {dt["time"]: [m.get("med_id", "") for m in dt.get("medications", [])]
                 for dt in dose_times}
+    checked_rules: list[str] = []
 
     for alert in alerts:
         ids = alert.get("med_ids") or []
         if len(ids) < 2:
             continue
+        rule_id = alert.get("rule_id") or alert.get("id") or ""
+        if rule_id and rule_id not in checked_rules:
+            checked_rules.append(rule_id)
         kind = alert.get("kind")
         gap = float(alert.get("time_gap_hours") or 0.0)
         pairs = alert.get("conflicting_pairs") or [
@@ -1249,9 +1259,12 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
                                     ),
                                 })
 
+    knowledge_base = schedule.get("knowledge_base") or {}
     return {
-        "verified": not violations,
+        "verified_against_rules": not violations,
         "violations": violations,
+        "rules_checked": checked_rules,
         "checked_alerts": len([a for a in alerts if len(a.get("med_ids") or []) >= 2]),
         "checked_at_slots": len(slot_ids),
+        "knowledge_version": dict(knowledge_base),
     }

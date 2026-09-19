@@ -368,18 +368,25 @@ def test_verifier_catches_a_tampered_schedule(registry):
         }],
     }
     result = verify_schedule(tampered, alert_dicts)
-    assert result["verified"] is False
+    assert result["verified_against_rules"] is False
     # Warfarin + ibuprofen now carry no cited hour gap (combination-avoid), so
     # the verifier flags the co-administration itself, not a gap violation.
     assert result["violations"][0]["reason"] == "interaction_same_slot"
+    # S-5: the verifier reports which rules it examined and which knowledge
+    # base it ran against, so a stale cached schedule is detectable.
+    assert isinstance(result["rules_checked"], list)
+    assert result["knowledge_version"] == {}
 
 
 def test_verifier_accepts_a_good_schedule(registry):
     meds = [med("m1", "Warf", timing=["08:00"]), med("m2", "Brufen", timing=["20:00"])]
     alerts, _ = check_patient(meds, "p1", registry=registry)
     schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
-    assert schedule["verification"]["verified"] is True
+    assert schedule["verification"]["verified_against_rules"] is True
     assert schedule["verification"]["violations"] == []
+    # The good schedule names the rule it checked and the KB version it used.
+    assert schedule["verification"]["rules_checked"]
+    assert schedule["verification"]["knowledge_version"]
 
 
 def test_schedule_flags_medicines_whose_ingredients_are_unknown(registry):
