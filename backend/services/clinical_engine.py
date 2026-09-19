@@ -300,12 +300,16 @@ def _rule_to_alert(
     )
 
 
-#: Minimum separation between two interacting doses, by severity. These are
-#: scheduling constraints enforced by the solver, not text in a prompt.
+#: Minimum separation between two interacting doses, by severity. These exist
+#: only as a last-resort default; the solver NEVER fabricates a non-zero gap a
+#: rule's cited advice does not support. Every shipped rule declares its own
+#: `min_gap_hours` (0.0 where timing cannot resolve the combination), so the
+#: severity default is 0.0 for every severity - a rule missing `min_gap_hours`
+#: is a knowledge-base defect and yields no separation, never an invented one.
 DEFAULT_TIME_GAPS: dict[str, float] = {
     "contraindicated": 0.0,   # never co-administer; scheduling cannot fix this
-    "major": 6.0,
-    "moderate": 2.0,
+    "major": 0.0,
+    "moderate": 0.0,
     "minor": 0.0,
     "info": 0.0,
 }
@@ -314,10 +318,14 @@ DEFAULT_TIME_GAPS: dict[str, float] = {
 def rule_time_gap(rule: dict) -> float:
     """How far apart this rule's two medicines must be kept.
 
-    A rule may declare `min_gap_hours` when its own cited advice names a specific
+    A rule declares `min_gap_hours` when its own cited advice names a specific
     interval - the aspirin/NSAID rule says 8 hours, and the schedule must not
-    print "kept apart" over a gap the citation does not support. Otherwise the
-    severity default applies.
+    print "kept apart" over a gap the citation does not support. A rule that
+    declares 0.0 means no time separation resolves the combination (it is a
+    standing alert, not a timing one). A rule missing `min_gap_hours` entirely
+    is an incomplete knowledge-base entry; the solver refuses to invent a gap
+    for it and treats the pair as un-separable by timing (0.0), never a
+    fabricated severity-based hour count.
     """
     declared = rule.get("min_gap_hours")
     if isinstance(declared, (int, float)) and declared >= 0:
@@ -596,14 +604,17 @@ def _feasibility_conflict(
     slot_time: str,
     assignments: dict[str, list[str]],
     gap_pairs: dict[frozenset, float],
-    duplicate_pairs: set[frozenset],
+    no_coallocate_pairs: set[frozenset],
 ) -> str | None:
     """Why `med_id` cannot go in `slot_time`, or None if it is safe there.
 
     Checks BOTH constraints that matter clinically:
-      * two products sharing an active ingredient must not share a slot, and
-      * an interacting pair must be separated by the required number of hours
-        from *every* dose of the other medicine, not just the one in this slot.
+      * two products sharing an active ingredient, or any interacting pair, must
+        not share a slot (co-administration is the riskiest moment for a
+        combination alert, even one timing cannot resolve), and
+      * an interacting pair with a cited `min_gap_hours` must be separated by at
+        least that many hours from *every* dose of the other medicine, not just
+        the one in this slot.
     """
     for other_id, other_slots in assignments.items():
         if other_id == med_id:
@@ -612,8 +623,8 @@ def _feasibility_conflict(
             continue
 
         pair = frozenset((med_id, other_id))
-        if pair in duplicate_pairs and slot_time in other_slots:
-            return f"another product with the same active ingredient is already at {slot_time}"
+        if pair in no_coallocate_pairs and slot_time in other_slots:
+            return f"another medicine that interacts with this one is already at {slot_time}"
 
         gap = gap_pairs.get(pair, 0.0)
         if gap > 0:
@@ -658,7 +669,12 @@ def build_schedule(
     active.sort(key=lambda m: (m.get("id") or m.get("brand_name") or ""))
 
     gap_pairs: dict[frozenset, float] = {}
-    duplicate_pairs: set[frozenset] = set()
+    # Pairs that must never be co-administered in the same slot: duplicates
+    # (same active ingredient) AND every interaction pair. An interaction with
+    # no cited time gap (min_gap_hours == 0) is a standing combination alert that
+    # timing cannot resolve - the two are still never placed in the same slot,
+    # but no fabricated hour gap is claimed for them.
+    no_coallocate_pairs: set[frozenset] = set()
 
     for alert in patient_alerts:
         pairs = alert.get("conflicting_pairs") or []
@@ -673,8 +689,11 @@ def build_schedule(
                 continue
             key = frozenset(ids)
             if alert.get("kind") in ("duplicate_ingredient", "dose_ceiling"):
-                duplicate_pairs.add(key)
+                no_coallocate_pairs.add(key)
             elif alert.get("kind") == "interaction":
+                # Two interacting medicines are never co-administered in the same
+                # slot, regardless of whether a cited hour gap also applies.
+                no_coallocate_pairs.add(key)
                 gap = float(alert.get("time_gap_hours") or 0.0)
                 if gap > 0:
                     gap_pairs[key] = max(gap_pairs.get(key, 0.0), gap)
@@ -702,7 +721,7 @@ def build_schedule(
 
             chosen = None
             for candidate in candidates:
-                if _feasibility_conflict(med_id, candidate, assignments, gap_pairs, duplicate_pairs) is None:
+                if _feasibility_conflict(med_id, candidate, assignments, gap_pairs, no_coallocate_pairs) is None:
                     chosen = candidate
                     break
             if chosen is None:
@@ -1041,7 +1060,7 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
                         "slots": shared,
                         "message": f"Two products sharing an ingredient are both scheduled at {shared}",
                     })
-        elif kind == "interaction" and gap > 0:
+        elif kind == "interaction":
             for pair in pairs:
                 pair_ids = pair.get("med_ids") or []
                 if len(pair_ids) < 2:
@@ -1049,21 +1068,40 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
                 a, b = pair_ids[0], pair_ids[1]
                 slots_a = [t for t, meds in slot_ids.items() if a in meds]
                 slots_b = [t for t, meds in slot_ids.items() if b in meds]
-                for x in slots_a:
-                    for y in slots_b:
-                        if abs(_minutes(x) - _minutes(y)) < gap * 60:
-                            violations.append({
-                                "alert_id": alert.get("id", ""),
-                                "kind": kind,
-                                "reason": "required_gap_violated",
-                                "slots": [x, y],
-                                "required_gap_hours": gap,
-                                "actual_gap_hours": abs(_minutes(x) - _minutes(y)) / 60.0,
-                                "message": (
-                                    f"Gap of {abs(_minutes(x) - _minutes(y)) / 60.0:g}h between "
-                                    f"{x} and {y} is below the required {gap:g}h"
-                                ),
-                            })
+                # Two interacting medicines are never co-administered in the same
+                # slot, even when no cited hour gap applies (a combination alert
+                # timing cannot resolve is still a co-administration risk).
+                shared = [t for t in slots_a if t in slots_b]
+                if shared:
+                    violations.append({
+                        "alert_id": alert.get("id", ""),
+                        "kind": kind,
+                        "reason": "interaction_same_slot",
+                        "slots": shared,
+                        "required_gap_hours": gap,
+                        "message": (
+                            f"Two interacting medicines are both scheduled at {shared}"
+                            + (f" (need {gap:g}h apart)" if gap > 0 else "")
+                        ),
+                    })
+                if gap > 0:
+                    for x in slots_a:
+                        for y in slots_b:
+                            if x == y:
+                                continue  # already reported as interaction_same_slot
+                            if abs(_minutes(x) - _minutes(y)) < gap * 60:
+                                violations.append({
+                                    "alert_id": alert.get("id", ""),
+                                    "kind": kind,
+                                    "reason": "required_gap_violated",
+                                    "slots": [x, y],
+                                    "required_gap_hours": gap,
+                                    "actual_gap_hours": abs(_minutes(x) - _minutes(y)) / 60.0,
+                                    "message": (
+                                        f"Gap of {abs(_minutes(x) - _minutes(y)) / 60.0:g}h between "
+                                        f"{x} and {y} is below the required {gap:g}h"
+                                    ),
+                                })
 
     return {
         "verified": not violations,

@@ -30,7 +30,9 @@ def test_major_interaction_detected_across_brand_names(registry):
     alert = alerts[0]
     assert alert.severity == "major"
     assert set(alert.ingredients) == {"warfarin", "ibuprofen"}
-    assert alert.time_gap_hours == 6.0
+    # No fabricated hour gap: warfarin + ibuprofen is a combination-avoid alert
+    # that timing cannot resolve, so the engine claims no separation for it.
+    assert alert.time_gap_hours == 0.0
     # Every assertion must be traceable to a source for a pharmacist to audit.
     assert alert.source and alert.citation and alert.rule_id
 
@@ -254,18 +256,38 @@ def test_schedule_never_puts_duplicate_ingredients_in_one_slot(registry):
 
 
 def test_schedule_respects_the_required_gap(registry):
+    # A rule with a cited 8-hour gap (aspirin + another NSAID) is enforced.
     meds = [
-        med("m1", "Warf", timing=["08:00"]),
-        med("m2", "Brufen", timing=["20:00"]),
+        med("m1", "Ecosprin", timing=["08:00"]),
+        med("m2", "Brufen", timing=["08:00", "20:00"]),
     ]
     alerts, _ = check_patient(meds, "p1", registry=registry)
     schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
     slots = {m["med_id"]: d["time"] for d in schedule["dose_times"] for m in d["medications"]}
     gap_needed = alerts[0].time_gap_hours
+    assert gap_needed == 8.0
     assert slots["m1"] and slots["m2"]
     h1, m1_ = (int(x) for x in slots["m1"].split(":"))
     h2, m2_ = (int(x) for x in slots["m2"].split(":"))
     assert abs((h1 * 60 + m1_) - (h2 * 60 + m2_)) >= gap_needed * 60
+
+
+def test_interaction_pair_with_no_time_gap_is_never_co_located(registry):
+    """A combination-avoid interaction (no cited hour gap) is still never placed
+    in the same slot as the other medicine - co-administration is the riskiest
+    moment, and the engine never claims a fabricated separation for it."""
+    meds = [
+        med("m1", "Warf", timing=["08:00"]),
+        med("m2", "Brufen", timing=["08:00"]),
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    assert alerts[0].time_gap_hours == 0.0
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    by_slot = {d["time"]: [m["med_id"] for m in d["medications"]] for d in schedule["dose_times"]}
+    # The two are never in the same slot.
+    for meds_here in by_slot.values():
+        assert not ({"m1", "m2"} <= set(meds_here)), by_slot
+    assert schedule["schedule_status"] != "unsafe_conflict"
 
 
 def test_schedule_moves_a_dose_and_says_why(registry):
@@ -339,7 +361,9 @@ def test_verifier_catches_a_tampered_schedule(registry):
     }
     result = verify_schedule(tampered, alert_dicts)
     assert result["verified"] is False
-    assert result["violations"][0]["reason"] == "required_gap_violated"
+    # Warfarin + ibuprofen now carry no cited hour gap (combination-avoid), so
+    # the verifier flags the co-administration itself, not a gap violation.
+    assert result["violations"][0]["reason"] == "interaction_same_slot"
 
 
 def test_verifier_accepts_a_good_schedule(registry):
@@ -394,13 +418,15 @@ def test_schedule_reports_the_knowledge_base_it_used(registry):
 # ── Time gaps are constraints, not prose ──────────────────────────────────────
 
 def test_rule_gap_override_beats_the_severity_default(registry):
-    """The aspirin/NSAID rule says 8 hours in its own cited advice; scheduling
-    them 2 hours apart and printing "kept apart" would be a false claim."""
+    """The aspirin/NSAID rule says 8 hours in its own cited advice; the severity
+    default is now 0.0 (no fabricated gap), so the cited 8 hours is what the
+    solver uses - printing "kept apart" over a made-up 2 hours would be a false
+    claim."""
     from services.clinical_engine import DEFAULT_TIME_GAPS, rule_time_gap
 
     aspirin_rule = next(r for r in registry.rules if r["id"] == "ddi_aspirin_nsaid")
     assert aspirin_rule["severity"] == "moderate"
-    assert DEFAULT_TIME_GAPS["moderate"] == 2.0
+    assert DEFAULT_TIME_GAPS["moderate"] == 0.0
     assert rule_time_gap(aspirin_rule) == 8.0
 
     meds = [med("m1", "Ecosprin"), med("m2", "Brufen")]
@@ -412,14 +438,53 @@ def test_declared_gaps_are_positive_and_used_by_the_solver(registry):
     from services.clinical_engine import DEFAULT_TIME_GAPS, rule_time_gap
 
     for rule in registry.rules:
+        # Every shipped rule now declares its own min_gap_hours; a rule without
+        # one is an incomplete knowledge-base entry, not something the solver
+        # silently fills in with a severity-based hour count.
+        assert "min_gap_hours" in rule, f"{rule['id']} declares no min_gap_hours"
         gap = rule_time_gap(rule)
         assert gap >= 0, rule["id"]
-        if "min_gap_hours" in rule:
-            assert gap == float(rule["min_gap_hours"]), rule["id"]
+        assert gap == float(rule["min_gap_hours"]), rule["id"]
         if rule["severity"] == "contraindicated":
             assert gap == 0.0, "scheduling cannot separate a contraindicated pair"
     for severity, gap in DEFAULT_TIME_GAPS.items():
-        assert gap >= 0, severity
+        assert gap == 0.0, f"no fabricated gap for severity {severity}: {gap}"
+
+
+def test_no_fabricated_gap_when_a_rule_lacks_min_gap_hours():
+    """A rule missing min_gap_hours entirely is a KB defect: the solver refuses
+    to invent a severity-based gap for it rather than silently scheduling a
+    made-up separation. (Shipped rules all declare min_gap_hours; this guards
+    future KB additions.)"""
+    from services.clinical_engine import DEFAULT_TIME_GAPS, rule_time_gap
+
+    assert DEFAULT_TIME_GAPS["major"] == 0.0
+    assert DEFAULT_TIME_GAPS["moderate"] == 0.0
+    major_rule = {"id": "ddi_synthetic", "severity": "major"}  # no min_gap_hours
+    assert rule_time_gap(major_rule) == 0.0  # not 6.0
+
+
+def test_nitrate_pde5_carries_the_cited_48_hour_washout(registry):
+    """The nitrate / PDE5-inhibitor rule cites a 24-48 hour washout; the solver
+    uses the conservative 48 hours. A patient on both cannot be safely scheduled
+    in a single day, so the engine refuses to co-schedule them and reports it."""
+    meds = [
+        med("m1", "Sorbitrate", timing=["08:00"]),   # isosorbide dinitrate
+        med("m2", "Viagra", timing=["08:00"]),         # sildenafil
+    ]
+    alerts, unchecked = check_patient(meds, "p1", registry=registry)
+    assert unchecked == []
+    nitrate = [a for a in alerts if a.rule_id == "ddi_nitrate_pde5"]
+    assert nitrate, "nitrate/PDE5 alert not raised"
+    assert nitrate[0].time_gap_hours == 48.0
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    # 48h cannot fit in a single-day schedule, so the pair is not both placed.
+    by_slot = {d["time"]: [m["med_id"] for m in d["medications"]] for d in schedule["dose_times"]}
+    for meds_here in by_slot.values():
+        assert not ({"m1", "m2"} <= set(meds_here)), by_slot
+    assert schedule["schedule_status"] == "partial"
+    # No fabricated "kept apart" note claims a separation the citation does not.
+    assert not any("kept at least" in n and "48" not in n for n in schedule["safety_notes"])
 
 
 # ── Reporting what the solver could not place ─────────────────────────────────

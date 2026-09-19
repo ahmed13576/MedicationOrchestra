@@ -1,5 +1,5 @@
 {
-  "version": "1.1.2",
+  "version": "1.1.3",
   "review_status": "DEMONSTRATION SET - not clinician-reviewed",
   "reviewed_by": null,
   "reviewed_on": null,
@@ -53,7 +53,8 @@
           "nimesulide",
           "aspirin"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_warfarin_aspirin_antiplatelet",
@@ -82,7 +83,8 @@
           "prasugrel",
           "dipyridamole"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_doac_nsaid",
@@ -115,7 +117,8 @@
           "aceclofenac",
           "aspirin"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_acei_arb_potassium",
@@ -148,7 +151,8 @@
         [
           "potassium chloride"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_acei_arb_dual_blockade",
@@ -177,7 +181,8 @@
           "losartan",
           "olmesartan"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_ssri_nsaid",
@@ -220,7 +225,8 @@
           "aspirin",
           "ketorolac"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_ssri_anticoag",
@@ -257,7 +263,8 @@
           "rivaroxaban",
           "dabigatran"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_ssri_triptan_serotonergic",
@@ -302,7 +309,8 @@
           "imipramine",
           "nortriptyline"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_maoi_serotonergic",
@@ -345,7 +353,8 @@
           "tramadol",
           "linezolid"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_clopidogrel_omeprazole",
@@ -368,7 +377,8 @@
           "omeprazole",
           "esomeprazole"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_nitrate_pde5",
@@ -395,7 +405,8 @@
           "sildenafil",
           "tadalafil"
         ]
-      ]
+      ],
+      "min_gap_hours": 48.0
     },
     {
       "id": "ddi_sulfonylurea_betablocker",
@@ -426,7 +437,8 @@
           "bisoprolol",
           "propranolol"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_metoprolol_verapamil_diltiazem",
@@ -455,7 +467,8 @@
           "verapamil",
           "diltiazem"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_digoxin_amiodarone",
@@ -484,7 +497,8 @@
           "diltiazem",
           "spironolactone"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_digoxin_diuretic_hypokalaemia",
@@ -511,7 +525,8 @@
           "hydrochlorothiazide",
           "chlorthalidone"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_metoclopramide_antipsychotic_eps",
@@ -542,7 +557,8 @@
           "promethazine",
           "domperidone"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_anticholinergic_burden",
@@ -573,7 +589,8 @@
           "hydroxyzine",
           "promethazine"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_benzodiazepine_opioid_sedation",
@@ -616,7 +633,8 @@
           "tapentadol",
           "buprenorphine"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_gabapentinoid_opioid",
@@ -649,7 +667,8 @@
           "tapentadol",
           "buprenorphine"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_statin_clarithromycin",
@@ -680,7 +699,8 @@
           "ketoconazole",
           "ritonavir"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_colchicine_clarithromycin",
@@ -713,7 +733,8 @@
           "cyclosporine",
           "tacrolimus"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_allopurinol_azathioprine",
@@ -734,7 +755,8 @@
         [
           "azathioprine"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_methotrexate_nsaid",
@@ -765,7 +787,8 @@
           "aspirin",
           "ketorolac"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_levothyroxine_iron_calcium",
@@ -864,7 +887,8 @@
           "rivaroxaban",
           "dabigatran"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_carbamazepine_phenytoin_anticoag",
@@ -895,7 +919,8 @@
           "rivaroxaban",
           "dabigatran"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_steroid_nsaid",
@@ -936,7 +961,8 @@
           "aspirin",
           "ketorolac"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_acei_arb_nsaid_kidney",
@@ -977,7 +1003,8 @@
           "diclofenac",
           "aceclofenac"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_lithium_nsaid_acei",
@@ -1018,7 +1045,8 @@
           "hydrochlorothiazide",
           "furosemide"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_steroid_diabetes",
@@ -1069,7 +1097,8 @@
           "dapagliflozin",
           "pioglitazone"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_aspirin_antiplatelet",
@@ -1097,7 +1126,8 @@
           "prasugrel",
           "dipyridamole"
         ]
-      ]
+      ],
+      "min_gap_hours": 0.0
     },
     {
       "id": "ddi_aspirin_nsaid",
@@ -1226,6 +1256,10 @@
     {
       "version": "1.1.2",
       "change": "rules whose cited advice names a specific interval declare min_gap_hours, which the solver and the verifier enforce"
+    },
+    {
+      "version": "1.1.3",
+      "change": "every interaction rule now declares min_gap_hours explicitly (0.0 where timing cannot resolve the combination; 48.0 for nitrate/PDE5 washout). The solver no longer fabricates a severity-based gap."
     }
   ]
 }
