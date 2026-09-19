@@ -1,7 +1,12 @@
 """
 notification_service.py — Medication Orchestra
 
-FCM delivery for dose reminders and SOS alerts.
+FCM delivery for SOS alerts.
+
+There is no dose-reminder sender here. One existed with zero callers and no
+scheduler behind it, which made the product look like it reminded people to
+take their medicines when nothing ever fired. It was deleted rather than left
+as a promise; a reminder feature starts with the scheduler, not the sender.
 
 firebase_admin.initialize_app() is called once by services/auth_service.py at
 import time; this module must not initialise it again.
@@ -37,32 +42,6 @@ def _classify(exc: Exception) -> str:
     if "quota" in text or "unavailable" in text or "timeout" in text:
         return "temporarily_unavailable"
     return "send_failed"
-
-
-def send_dose_reminder(
-    fcm_token: str,
-    med_name: str,
-    dose: str,
-    instruction: str,
-    warning: str | None = None,
-) -> bool:
-    """Send one dose reminder. Returns True only on confirmed acceptance by FCM."""
-    body = f"{dose} — {instruction}" if instruction else dose
-    if warning:
-        body += f"\n⚠️ {warning}"
-
-    message = messaging.Message(
-        notification=messaging.Notification(title=f"💊 Time for {med_name}", body=body),
-        android=messaging.AndroidConfig(channel_id="medication_reminders", priority="high"),
-        token=fcm_token,
-    )
-    try:
-        messaging.send(message)
-        logger.info("Dose reminder sent for %s", med_name)
-        return True
-    except Exception as exc:
-        logger.warning("FCM dose reminder failed for %s (%s)", med_name, _classify(exc))
-        return False
 
 
 def send_sos_alert(
