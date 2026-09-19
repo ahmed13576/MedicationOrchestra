@@ -28,8 +28,21 @@ the rewrite the app showed a green tick over an *empty* corpus.
 **It never mixes two patients.** `profile_id=all` checks each person separately;
 there is no code path that pairs one household member's medicine with another's.
 
+**A rule only fires across an interaction.** Each rule declares the mechanism
+groups it connects (a blood thinner, an NSAID, an SSRI) and only pairs ingredients
+from *different* groups. Two painkillers of the same class are not "an
+antidepressant plus a painkiller"; that false alarm used to be reachable because
+the rule listed a whole drug class as one flat ingredient list. Groups are
+validated at load time — a rule with overlapping or missing groups stops the
+service rather than mis-firing.
+
+**An interval in the citation is an interval in the schedule.** Where a rule's own
+cited advice names a time (the aspirin/NSAID rule says 8 hours), the rule carries
+`min_gap_hours` and the solver and the independent verifier enforce that number,
+not a generic severity default.
+
 **The knowledge base has not been reviewed by a clinician yet.** The shipped set
-(193 ingredients, 32 rules, 175 brand presentations) is marked
+(195 ingredients, 33 rules, 175 brand presentations) is marked
 `DEMONSTRATION SET - not clinician-reviewed` in the data, in `/health`, and on
 screen. The source of every rule is recorded in
 [docs/KNOWLEDGE_SOURCES.md](docs/KNOWLEDGE_SOURCES.md); the licensing history
@@ -83,8 +96,8 @@ Health: `curl localhost:8080/health` · readiness: `curl localhost:8080/readyz`
 
 ### Tests (no credentials, no network — the cloud clients are stubbed)
 ```bash
-cd backend && python -m pytest tests/ -q          # 121 tests
-python scripts/safety_invariant_audit.py          # 39 checks, exits 0 only if every invariant holds
+cd backend && python -m pytest tests/ -q          # 127 tests
+python scripts/safety_invariant_audit.py          # 43 checks, exits 0 only if every invariant holds
 ```
 
 ### Client
@@ -114,10 +127,10 @@ any violation. The ten invariants:
 |---|---|
 | INV-1 | The clinical knowledge base ships with the service (in the image, checked at build time, at `/readyz`, and in CI) |
 | INV-2 | An empty, unconfigured or knowledge-base-less service fails loud — never a green "safe" |
-| INV-3 | Drug identity is exact: `cortisone ≠ hydrocortisone`, `ampicillin ≠ pivampicillin`, and the real `aspirin + clopidogrel` pair *is* found |
+| INV-3 | Drug identity is exact: `cortisone ≠ hydrocortisone`, `ampicillin ≠ pivampicillin`, and the real `aspirin + clopidogrel` pair *is* found. A rule never fires on two drugs from the same side of the interaction, and every rule's mechanism groups are disjoint and complete |
 | INV-4 | A medicine that could not be identified is reported as unchecked, with a reason |
 | INV-5 | Duplicate ingredients are visible with the arithmetic (Dolo 650 + Combiflam = 975 mg per dose-time, 2600 mg/day) and a citation |
-| INV-6 | The schedule honours required gaps or says it could not; an independent verifier re-checks the result |
+| INV-6 | The schedule honours required gaps — including a rule's own cited interval — or says it could not; an independent verifier re-checks the result, and an alert names only the medicines that actually interact |
 | INV-7 | No model participates in a clinical decision |
 | INV-8 | Two patients' medicines are never paired |
 | INV-9 | Acknowledgements persist, and SOS references a finding that really exists |
@@ -146,7 +159,7 @@ backend/
 ├── knowledge/               # ingredients.json, interactions.json, brand_mapping.csv
 ├── services/                # registry, engine, model surfaces, auth, audit, limits, images
 ├── agents/agent_security.py # input sanitisation + output validation
-└── tests/                   # 121 tests + the in-memory Firestore fake
+└── tests/                   # 127 tests + the in-memory Firestore fake
 medication_orchestra/        # Flutter client
 scripts/safety_invariant_audit.py
 docs/                        # API, knowledge sources, security & privacy, review, product plan

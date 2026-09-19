@@ -335,7 +335,7 @@ def inv_2_fail_loud(harness: Harness) -> None:
 # ---------------------------------------------------------------------------
 
 def inv_3_exact_identity(harness: Harness) -> None:
-    print("\nINV-3  drug identity is exact, never substring containment")
+    print("\nINV-3  drug identity is exact, and a rule only fires across an interaction")
     registry = harness.main.REGISTRY
 
     collisions = []
@@ -384,6 +384,53 @@ def inv_3_exact_identity(harness: Harness) -> None:
         "INV-3", "_token_match" not in sources and "in generic.lower()" not in sources,
         "no substring matcher remains in the clinical path",
         "a substring matcher is still present in the clinical path",
+    )
+
+    # Mechanism groups. A rule that lists several drugs of one class must only
+    # fire when the patient takes a drug from each side of the interaction: two
+    # NSAIDs are not "an antidepressant plus an NSAID".
+    problems: list[str] = []
+    classes = {
+        "ddi_ssri_nsaid": [("ibuprofen", "naproxen"), ("sertraline", "fluoxetine")],
+        "ddi_steroid_nsaid": [("ibuprofen", "aspirin"), ("prednisolone", "dexamethasone")],
+        "ddi_warfarin_nsaid": [("ibuprofen", "aspirin"), ("warfarin", "warfarin")],
+        "ddi_aspirin_antiplatelet": [("clopidogrel", "ticagrelor"), ("aspirin", "aspirin")],
+    }
+    for rule_id, pairs in classes.items():
+        for left, right in pairs:
+            if left == right:
+                continue
+            firing = [r["id"] for r in registry.rules_for_pair(left, right)]
+            if rule_id in firing:
+                problems.append(f"{rule_id} fires on {left}+{right}, same side of the interaction")
+    check(
+        "INV-3", not problems,
+        "a rule never fires on two drugs from the same side of the interaction "
+        "(two NSAIDs are not an SSRI interaction)",
+        "; ".join(problems),
+    )
+
+    # Every rule declares disjoint groups that cover its ingredient list.
+    malformed: list[str] = []
+    for rule in registry.rules:
+        groups = rule.get("_groups") or []
+        if len(groups) < 2:
+            malformed.append(f"{rule['id']} has {len(groups)} group(s)")
+            continue
+        seen: set[str] = set()
+        for group in groups:
+            overlap = seen & set(group)
+            if overlap:
+                malformed.append(f"{rule['id']} repeats {sorted(overlap)}")
+            seen |= set(group)
+        for ingredient_id in rule.get("_ingredients") or []:
+            if ingredient_id not in seen:
+                malformed.append(f"{rule['id']} never pairs {ingredient_id}")
+    check(
+        "INV-3", not malformed,
+        f"all {len(registry.rules)} rules declare disjoint mechanism groups covering "
+        f"their ingredients",
+        "; ".join(malformed),
     )
 
 
@@ -520,6 +567,61 @@ def inv_6_schedule(harness: Harness) -> None:
         "INV-6", schedule.get("generated_by") == "deterministic_solver",
         "the schedule records the deterministic solver as its author",
         f"unexpected schedule author: {schedule.get('generated_by')}",
+    )
+
+    # A rule whose own cited advice names an interval must be scheduled to that
+    # interval. The aspirin/NSAID rule says 8 hours; the severity default is 2,
+    # and printing "kept apart" over 2 hours would be a claim the citation does
+    # not support.
+    gap_profile = harness.add_profile()
+    harness.add_medication(gap_profile, "Ecosprin 75", dosage="75mg", frequency_raw="OD",
+                           timing=["08:00"])
+    harness.add_medication(gap_profile, "Brufen 400", dosage="400mg", frequency_raw="BD",
+                           timing=["08:00", "20:00"])
+    gap_body = harness.schedule(gap_profile)
+    gap_schedule = gap_body["schedules"][0]
+    aspirin_alert = next(
+        (a for a in gap_body["interactions"] if a["rule_id"] == "ddi_aspirin_nsaid"), None
+    )
+    place: dict[str, list[int]] = {}
+    for slot in gap_schedule["dose_times"]:
+        hour = int(slot["time"][:2])
+        for entry in slot["medications"]:
+            place.setdefault(entry["med_name"], []).append(hour)
+    separated = all(
+        abs(a - b) >= 8
+        for a in place.get("Ecosprin 75", [])
+        for b in place.get("Brufen 400", [])
+    )
+    check(
+        "INV-6",
+        aspirin_alert is not None
+        and aspirin_alert["time_gap_hours"] == 8.0
+        and (separated or gap_schedule["schedule_status"] != "verified"),
+        f"the aspirin/NSAID rule's own 8-hour interval is what the solver enforces "
+        f"(placed {place.get('Ecosprin 75')} vs {place.get('Brufen 400')})",
+        f"the schedule separates them by less than the cited 8 hours: {place}",
+    )
+
+    # An alert must name the medicines that interact, not everything in the list.
+    bystander_profile = harness.add_profile()
+    harness.add_medication(bystander_profile, "Warfarin 5mg", dosage="5mg",
+                           frequency_raw="OD", timing=["08:00"])
+    harness.add_medication(bystander_profile, "Brufen 400", dosage="400mg",
+                           frequency_raw="OD", timing=["20:00"])
+    harness.add_medication(bystander_profile, "Eltroxin 50", dosage="50mcg",
+                           frequency_raw="OD", timing=["07:00"])
+    bystander_body = harness.interactions(bystander_profile)
+    bleeding = [
+        a for a in bystander_body["interactions"]
+        if "warfarin" in a["ingredients"] and "ibuprofen" in a["ingredients"]
+    ]
+    check(
+        "INV-6",
+        bool(bleeding) and "Eltroxin 50" not in bleeding[0]["medications"],
+        f"the bleeding-risk alert names only the interacting medicines: "
+        f"{bleeding[0]['medications'] if bleeding else 'no alert'}",
+        "an alert names a medicine that is not part of the interaction",
     )
 
 

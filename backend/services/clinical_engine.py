@@ -205,18 +205,21 @@ def _interaction_alerts(
 ) -> list[Alert]:
     """Pairwise interaction alerts over ingredient sets.
 
-    Alerts are grouped by (rule, ingredient pair) and then list the products that
-    actually carry the two triggering ingredients. Grouping matters in both
-    directions:
-      * the same clinical fact reaching the patient through three different
-        brands should be one alert, not three; but
-      * a second product containing the same interacting ingredient must not be
-        silently swallowed by de-duplication (which is what a naive
-        "(rule, ingredient pair)" dedup does).
+    Alerts are keyed by (rule, pair of mechanism groups) and then list the
+    products that actually carry the triggering ingredients. Keying by group
+    rather than by ingredient matters in three directions:
 
-    Only medicines containing one of the two triggering ingredients are listed,
-    so an alert about warfarin + ibuprofen does not name a thyroid tablet that
-    merely happens to be in the same medicine list.
+      * the same clinical fact reaching the patient through three different
+        brands is one alert, not three;
+      * warfarin + ibuprofen and warfarin + aspirin are the same clinical fact
+        ("do not combine this blood thinner with a painkiller of this class"),
+        so they are one alert naming all four products, not two;
+      * a second product containing a triggering ingredient is never swallowed
+        by de-duplication - it is added to the same alert.
+
+    Only medicines containing one of the triggering ingredients are listed, so
+    an alert about warfarin + ibuprofen does not name a thyroid tablet that
+    happens to be in the same medicine list.
     """
     grouped: dict[tuple[str, frozenset], dict] = {}
 
@@ -226,17 +229,23 @@ def _interaction_alerts(
                 if ing_a == ing_b:
                     continue
                 for rule in registry.rules_for_pair(ing_a, ing_b):
-                    # Different mechanism groups only - see MedicationRegistry.
-                    if registry.group_of(rule, ing_a) == registry.group_of(rule, ing_b):
+                    group_a = registry.group_of(rule, ing_a)
+                    group_b = registry.group_of(rule, ing_b)
+                    # A rule only ever connects two different mechanism groups;
+                    # see MedicationRegistry._load.
+                    if group_a == group_b:
                         continue
-                    key = (rule["id"], frozenset((ing_a, ing_b)))
+                    key = (rule["id"], frozenset((group_a, group_b)))
                     bucket = grouped.setdefault(key, {
                         "rule": rule,
-                        "ingredients": [ing_a, ing_b],
+                        "ingredients": [],
                         "meds": [],
                         "med_ids": [],
                         "pairs": [],
                     })
+                    for ingredient_id in (ing_a, ing_b):
+                        if ingredient_id not in bucket["ingredients"]:
+                            bucket["ingredients"].append(ingredient_id)
                     pair = {
                         "med_ids": [med_a.get("id", ""), med_b.get("id", "")],
                         "ingredients": [ing_a, ing_b],
@@ -287,7 +296,7 @@ def _rule_to_alert(
         medications=[m.get("brand_name", "") for m in meds],
         ingredients=ingredient_ids,
         med_ids=[m.get("id", "") for m in meds],
-        time_gap_hours=DEFAULT_TIME_GAPS.get(severity, 0.0),
+        time_gap_hours=rule_time_gap(rule),
     )
 
 
@@ -300,6 +309,20 @@ DEFAULT_TIME_GAPS: dict[str, float] = {
     "minor": 0.0,
     "info": 0.0,
 }
+
+
+def rule_time_gap(rule: dict) -> float:
+    """How far apart this rule's two medicines must be kept.
+
+    A rule may declare `min_gap_hours` when its own cited advice names a specific
+    interval - the aspirin/NSAID rule says 8 hours, and the schedule must not
+    print "kept apart" over a gap the citation does not support. Otherwise the
+    severity default applies.
+    """
+    declared = rule.get("min_gap_hours")
+    if isinstance(declared, (int, float)) and declared >= 0:
+        return float(declared)
+    return DEFAULT_TIME_GAPS.get(rule.get("severity", ""), 0.0)
 
 
 def _duplicate_alerts(

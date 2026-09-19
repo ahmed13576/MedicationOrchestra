@@ -58,6 +58,54 @@ def test_second_product_carrying_the_same_ingredient_is_not_swallowed(registry):
     assert set(warfarin_alerts[0].medications) == {"Warf", "Brufen", "Combiflam"}
 
 
+def test_two_medicines_from_the_same_group_do_not_trigger_a_cross_group_rule(registry):
+    """Brufen + Combiflam are both NSAIDs. The SSRI+NSAID rule lists several
+    NSAIDs, so a naive ingredient-pairing fires it here and the alert reads as if
+    an antidepressant were involved. Only cross-group pairs may alert."""
+    meds = [med("m1", "Brufen"), med("m2", "Combiflam")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    rule_ids = {a.rule_id for a in alerts}
+    assert rule_ids == {"dup_ibuprofen"}, rule_ids
+    assert [a.kind for a in alerts] in (["duplicate_ingredient"], ["dose_ceiling"])  # one fact, one alert
+
+
+def test_aspirin_plus_another_nsaid_does_alert(registry):
+    """The other side of the same coin: two different NSAIDs DO interact when one
+    of them is aspirin, because it loses its antiplatelet effect."""
+    meds = [med("m1", "Ecosprin"), med("m2", "Brufen")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    assert [a.rule_id for a in alerts] == ["ddi_aspirin_nsaid"]
+    assert alerts[0].severity == "moderate"
+
+
+def test_every_rule_declares_disjoint_groups(registry):
+    """A rule whose groups overlap would fire on a single ingredient."""
+    for rule in registry.rules:
+        groups = rule.get("_groups") or []
+        assert groups, f"{rule['id']} has no mechanism groups"
+        seen: set[str] = set()
+        for group in groups:
+            overlap = seen & set(group)
+            assert not overlap, f"{rule['id']} repeats {sorted(overlap)} in two groups"
+            seen |= set(group)
+        assert len(groups) >= 2, f"{rule['id']} needs at least two groups"
+
+
+def test_alert_lists_only_the_medicines_that_carry_the_interacting_pair(registry):
+    """An alert naming an unrelated medicine trains the caregiver to distrust it."""
+    meds = [
+        med("m1", "Warf"),
+        med("m2", "Brufen"),
+        med("m3", "Eltroxin"),      # levothyroxine: in the medicine list, not in the pair
+        med("m4", "Shelcal"),       # calcium: same
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    warfarin_alerts = [a for a in alerts if "warfarin" in a.ingredients]
+    assert len(warfarin_alerts) == 1
+    assert set(warfarin_alerts[0].medications) == {"Warf", "Brufen"}
+    assert "Eltroxin" not in warfarin_alerts[0].medications
+
+
 def test_no_alert_when_no_rule_applies(registry):
     meds = [med("m1", "Shelcal"), med("m2", "Folvite")]
     alerts, _ = check_patient(meds, "p1", registry=registry)
@@ -341,3 +389,34 @@ def test_schedule_reports_the_knowledge_base_it_used(registry):
     assert schedule["knowledge_base"]["interactions"]
     assert schedule["review_status"]
     assert schedule["generated_by"] == "deterministic_solver"
+
+
+# ── Time gaps are constraints, not prose ──────────────────────────────────────
+
+def test_rule_gap_override_beats_the_severity_default(registry):
+    """The aspirin/NSAID rule says 8 hours in its own cited advice; scheduling
+    them 2 hours apart and printing "kept apart" would be a false claim."""
+    from services.clinical_engine import DEFAULT_TIME_GAPS, rule_time_gap
+
+    aspirin_rule = next(r for r in registry.rules if r["id"] == "ddi_aspirin_nsaid")
+    assert aspirin_rule["severity"] == "moderate"
+    assert DEFAULT_TIME_GAPS["moderate"] == 2.0
+    assert rule_time_gap(aspirin_rule) == 8.0
+
+    meds = [med("m1", "Ecosprin"), med("m2", "Brufen")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    assert alerts[0].time_gap_hours == 8.0
+
+
+def test_declared_gaps_are_positive_and_used_by_the_solver(registry):
+    from services.clinical_engine import DEFAULT_TIME_GAPS, rule_time_gap
+
+    for rule in registry.rules:
+        gap = rule_time_gap(rule)
+        assert gap >= 0, rule["id"]
+        if "min_gap_hours" in rule:
+            assert gap == float(rule["min_gap_hours"]), rule["id"]
+        if rule["severity"] == "contraindicated":
+            assert gap == 0.0, "scheduling cannot separate a contraindicated pair"
+    for severity, gap in DEFAULT_TIME_GAPS.items():
+        assert gap >= 0, severity

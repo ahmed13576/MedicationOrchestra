@@ -275,23 +275,47 @@ class MedicationRegistry:
             # ingredients span TWO DIFFERENT groups. Without this, a rule that
             # lists several NSAIDs fires for a patient taking two different
             # NSAIDs, and the alert reads as if an SSRI were involved.
+            #
+            # A rule without groups is a knowledge-base defect, not something to
+            # paper over at runtime: it would either silence the rule or fire it
+            # on the wrong patients, so the service refuses to start.
+            raw_groups = rule.get("groups") or []
+            if len(raw_groups) < 2:
+                raise KnowledgeBaseError(
+                    f"rule {rule['id']} must declare at least two mechanism groups "
+                    f"(got {len(raw_groups)}); without them the rule cannot tell "
+                    f"which ingredients interact and would fire on the wrong patients"
+                )
             groups = [
                 [self._require_ingredient(i, rule["id"]) for i in group]
-                for group in rule.get("groups") or []
+                for group in raw_groups
             ]
+            seen_groups: set[str] = set()
+            for group in groups:
+                overlap = seen_groups & set(group)
+                if overlap:
+                    raise KnowledgeBaseError(
+                        f"rule {rule['id']} lists {sorted(overlap)} in more than one "
+                        f"mechanism group, so it would fire on a single ingredient"
+                    )
+                seen_groups |= set(group)
+            ungrouped = set(ids) - seen_groups
+            if ungrouped:
+                raise KnowledgeBaseError(
+                    f"rule {rule['id']} lists {sorted(ungrouped)} in 'ingredients' but "
+                    f"not in any mechanism group, so those pairs can never alert"
+                )
             rule["_groups"] = groups
 
-            # Every cross-group pair is a match candidate.
-            if groups:
-                for a_idx, group in enumerate(groups):
-                    for other in groups[a_idx + 1:]:
-                        for a in group:
-                            for b in other:
-                                self._pair_index.setdefault(frozenset((a, b)), []).append(rule)
-            else:
-                for a_idx, a in enumerate(ids):
-                    for b in ids[a_idx + 1:]:
-                        self._pair_index.setdefault(frozenset((a, b)), []).append(rule)
+            # Every cross-group pair is a match candidate. Two ingredients in the
+            # same group are the same kind of medicine, so pairing them would
+            # fire this rule on a patient who takes both of them and no medicine
+            # from the other group at all.
+            for a_idx, group in enumerate(groups):
+                for other in groups[a_idx + 1:]:
+                    for a in group:
+                        for b in other:
+                            self._pair_index.setdefault(frozenset((a, b)), []).append(rule)
 
         for adv in self.advisories:
             ids = [self._require_ingredient(i, adv["id"]) for i in adv["ingredients"]]

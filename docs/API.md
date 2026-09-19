@@ -25,9 +25,9 @@ Two rules the client must not work around:
   "service": "medication-orchestra",
   "version": "2.0.0",
   "decision_engine": "deterministic",
-  "knowledge_base": { "ingredients": 193, "interaction_rules": 32,
+  "knowledge_base": { "ingredients": 195, "interaction_rules": 33,
                       "advisories": 3, "brand_presentations": 175,
-                      "ingredients_version": "1.0.0", "interactions_version": "1.0.1" },
+                      "ingredients_version": "1.0.1", "interactions_version": "1.1.2" },
   "review_status": "DEMONSTRATION SET - not clinician-reviewed",
   "model_calls_in_decision_path": 0
 }

@@ -1,5 +1,5 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "review_status": "DEMONSTRATION SET - not clinician-reviewed",
   "reviewed_by": null,
   "reviewed_on": null,
@@ -796,7 +796,8 @@
           "calcium acetate",
           "potassium chloride"
         ]
-      ]
+      ],
+      "min_gap_hours": 4.0
     },
     {
       "id": "ddi_fluoroquinolone_cation",
@@ -833,7 +834,8 @@
           "zinc sulfate",
           "sucralfate"
         ]
-      ]
+      ],
+      "min_gap_hours": 6.0
     },
     {
       "id": "ddi_rifampicin_hormonal_anticoag",
@@ -1133,7 +1135,8 @@
       "management": "If both are needed, take the aspirin at least 30 minutes before, or more than 8 hours after, the other painkiller - or ask the doctor about using paracetamol instead. Do not stop a prescribed low-dose aspirin on your own.",
       "source": "FDA_LABEL",
       "citation": "Ibuprofen prescribing information: concomitant use with aspirin may interfere with the antiplatelet effect of low-dose aspirin; FDA information for healthcare professionals on the concomitant use of ibuprofen and aspirin.",
-      "reviewed_by": null
+      "reviewed_by": null,
+      "min_gap_hours": 8.0
     }
   ],
   "advisories": [
@@ -1219,6 +1222,10 @@
     {
       "version": "1.1.1",
       "change": "added aspirin + other-NSAID rule (antiplatelet interference)"
+    },
+    {
+      "version": "1.1.2",
+      "change": "rules whose cited advice names a specific interval declare min_gap_hours, which the solver and the verifier enforce"
     }
   ]
 }

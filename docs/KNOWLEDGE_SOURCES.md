@@ -4,8 +4,8 @@
 
 | File | Contents | Version |
 |---|---|---|
-| `backend/knowledge/ingredients.json` | 193 active ingredients + synonym/`class` data | 1.0.0 |
-| `backend/knowledge/interactions.json` | 32 interaction rules, 3 advisories, 4 dose ceilings | 1.0.1 |
+| `backend/knowledge/ingredients.json` | 195 active ingredients + synonym/`class` data | 1.0.1 |
+| `backend/knowledge/interactions.json` | 33 interaction rules (each with mechanism groups and, where the citation names an interval, `min_gap_hours`), 3 advisories, 4 dose ceilings | 1.1.2 |
 | `backend/knowledge/brand_mapping.csv` | 175 Indian brand presentations with composition and strength | 1.0.0 |
 
 **Review status of the shipped set: `DEMONSTRATION SET - not clinician-reviewed`.**
@@ -85,13 +85,28 @@ Two distinct kinds of data have to be kept separate:
    curated per rule, cited, versioned, and must be signed off by a licensed
    clinical pharmacist before the set is used for paid clinical decisions.
 
-### Import plan (tracked as work, not aspiration)
+### Rule structure: mechanism groups and required intervals
+
+Every rule in `interactions.json` declares:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `groups` | yes (≥ 2) | The mechanism groups the rule connects. Each group is a list of ingredient ids that are interchangeable for this interaction. An alert fires only when the patient's ingredients span **two different groups**, so a rule listing six NSAIDs does not fire on a patient taking two of them, and no pair from the same group is ever indexed. |
+| `ingredients` | yes | The union of `groups`; kept so the data reads as a flat list, and validated at load time to match the groups exactly. |
+| `min_gap_hours` | no | Set **only** where the cited advice names a specific interval (aspirin/NSAID 8 h, levothyroxine/iron-calcium 4 h, fluoroquinolone/cations 6 h). The solver and the verifier enforce this number; otherwise the severity default (major 6 h, moderate 2 h) applies. |
+| `severity`, `title`, `mechanism`, `management`, `source`, `citation` | yes | Severity drives ordering; the rest is what the user reads. |
+
+A rule whose groups overlap, or which lists an ingredient outside its groups,
+raises `KnowledgeBaseError` and the service refuses to start — a mis-grouped rule
+would either silence an interaction or fire it on the wrong patients.
+
+## Import plan (tracked as work, not aspiration)
 
 | Step | Source | Licence | Status |
 |---|---|---|---|
 | Ingredient vocabulary + UNII | FDA UNII / RxNorm | public domain | not started |
 | Brand → ingredient mapping | product labelling (INDIA: CDSCO label text), curated | original compilation | 175 presentations in, needs review |
-| Interaction rules | FDA labelling + primary literature, each cited | facts, original phrasing | 32 rules in, needs pharmacist review |
+| Interaction rules | FDA labelling + primary literature, each cited | facts, original phrasing | 33 rules in, needs pharmacist review |
 | Severity assignment | the cited labelling + Beers/STOPP for the elderly | facts | in, needs pharmacist review |
 | Coverage benchmark | RxNav Interaction API (free, no severity) as a *recall* cross-check | NLM terms; non-commercial DrugBank provenance upstream | not started |
 
