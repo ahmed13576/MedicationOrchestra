@@ -46,6 +46,18 @@ SEVERITY_ORDER = {"contraindicated": 0, "major": 1, "moderate": 2, "minor": 3, "
 MAX_ALERTS_PER_PATIENT = 40
 
 
+class AlertList(list):
+    """A list of alerts that also carries how many were held back.
+
+    Severity-ordered truncation never drops a contraindicated or major finding
+    (those are always kept), so `truncated_count` only ever counts lower-severity
+    findings the cap pushed out. The number is disclosed to the caller so the UI
+    can say "showing 40 of 47" instead of silently hiding seven findings.
+    """
+
+    truncated_count: int = 0
+
+
 # ── Alert model ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -194,7 +206,19 @@ def check_patient(
     alerts.extend(_advisory_alerts(resolved, profile_id, patient_name, registry))
 
     alerts.sort(key=lambda a: (a.severity_rank, a.title))
-    return alerts[:MAX_ALERTS_PER_PATIENT], unchecked
+    # Never silently drop a critical/major finding: a flat cap that hid a
+    # contraindication would be the worst possible defect. Keep every
+    # contraindicated + major finding, then fill the remaining budget with
+    # lower-severity findings in severity order, and disclose how many were
+    # held back.
+    must_keep = [a for a in alerts if a.severity_rank <= SEVERITY_ORDER["major"]]
+    rest = [a for a in alerts if a.severity_rank > SEVERITY_ORDER["major"]]
+    budget = max(0, MAX_ALERTS_PER_PATIENT - len(must_keep))
+    kept = must_keep + rest[:budget]
+    kept.sort(key=lambda a: (a.severity_rank, a.title))
+    result = AlertList(kept)
+    result.truncated_count = len(alerts) - len(kept)
+    return result, unchecked
 
 
 def _interaction_alerts(
@@ -503,6 +527,7 @@ def check_household(
         alerts, unchecked = check_patient(meds, profile_id, name, registry)
         all_alerts.extend(alerts)
         all_unchecked.extend(unchecked)
+        per_patient_truncated = getattr(alerts, "truncated_count", 0)
         per_patient.append({
             "profile_id": profile_id,
             "patient_name": name,
@@ -510,6 +535,7 @@ def check_household(
             "checked_count": len(meds) - len(unchecked),
             "unchecked_count": len(unchecked),
             "alert_count": len(alerts),
+            "truncated_count": per_patient_truncated,
             "critical_count": sum(
                 1 for a in alerts if a.severity in ("contraindicated", "major")
             ),
@@ -532,11 +558,14 @@ def check_household(
         "patients": per_patient,
     }
     critical = sum(1 for a in all_alerts if a.severity in ("contraindicated", "major"))
+    truncated_total = sum(p["truncated_count"] for p in per_patient)
     return {
         "alerts": [a.to_dict() for a in all_alerts],
         "unchecked": [u.to_dict() for u in all_unchecked],
         "coverage": coverage,
         "critical_count": critical,
+        "truncated_count": truncated_total,
+        "max_alerts_per_patient": MAX_ALERTS_PER_PATIENT,
         "knowledge_base": registry.describe(),
         "review_status": registry.review_status,
     }

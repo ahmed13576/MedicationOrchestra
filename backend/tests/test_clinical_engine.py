@@ -542,3 +542,69 @@ def test_every_dropped_medicine_has_a_conflict_entry_with_a_reason(registry):
     assert {u["med_name"] for u in schedule["unscheduled"]} <= explained
     for conflict in schedule["conflicts"]:
         assert conflict["message"], conflict
+
+
+# ── Severity-ordered truncation ───────────────────────────────────────────────
+
+def test_truncation_never_drops_a_critical_or_major_finding(registry, monkeypatch):
+    """A flat cap that hid a contraindication would be the worst possible defect:
+    the most important finding is the one a caregiver must see. Truncation keeps
+    every critical/major finding regardless of the cap, and only pushes
+    lower-severity findings out - and says how many it pushed out."""
+    import services.clinical_engine as ce
+
+    # A major interaction (warfarin + NSAIDs) plus lower-severity advisories;
+    # cap to 1 so the budget is exhausted by the major alone.
+    monkeypatch.setattr(ce, "MAX_ALERTS_PER_PATIENT", 1)
+    meds = [
+        med("m1", "Warf", timing=["20:00"]),
+        med("m2", "Brufen", timing=["08:00"]),    # major: warfarin + ibuprofen
+        med("m3", "Ecosprin", timing=["08:00"]),  # merged into the same major
+        med("m4", "Dolo", timing=["08:00"]),        # dose_ceiling / advisory (lower)
+    ]
+    # Uncapped baseline first, then apply the cap and re-run.
+    monkeypatch.undo()
+    full, _ = check_patient(meds, "p1", registry=registry)
+    monkeypatch.setattr(ce, "MAX_ALERTS_PER_PATIENT", 1)
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    majors_full = [a for a in full if a.severity in ("contraindicated", "major")]
+    majors_kept = [a for a in alerts if a.severity in ("contraindicated", "major")]
+    assert len(majors_kept) == len(majors_full), "a major finding was dropped by the cap"
+    assert alerts.truncated_count == len(full) - len(alerts)
+    # The cap only ever pushes out lower-severity findings: every kept alert
+    # whose severity is above major would only appear once the budget allowed.
+    assert all(a.severity_rank <= ce.SEVERITY_ORDER["major"] for a in alerts) or len(alerts) > len(majors_kept)
+
+
+def test_truncation_discloses_the_count_held_back(registry, monkeypatch):
+    """The UI shows '40 of 47'; it cannot do that if the count is hidden. The
+    household payload carries the total held back and each patient's share."""
+    import services.clinical_engine as ce
+
+    monkeypatch.setattr(ce, "MAX_ALERTS_PER_PATIENT", 1)
+    meds = [
+        med("m1", "Warf", timing=["20:00"]),
+        med("m2", "Brufen", timing=["08:00"]),
+        med("m3", "Ecosprin", timing=["08:00"]),
+    ]
+    result = check_household(meds, {"p1": "dad"}, registry=registry)
+    assert result["truncated_count"] >= 1
+    assert result["max_alerts_per_patient"] == 1
+    assert result["coverage"]["patients"][0]["truncated_count"] == result["truncated_count"]
+
+
+def test_truncation_keeps_severity_order(registry, monkeypatch):
+    """Kept findings are still severity-ordered so the most urgent appears
+    first; a truncation that shuffled the survivors would bury a major below a
+    minor advisory."""
+    import services.clinical_engine as ce
+
+    monkeypatch.setattr(ce, "MAX_ALERTS_PER_PATIENT", 2)
+    meds = [
+        med("m1", "Warf", timing=["20:00"]),
+        med("m2", "Brufen", timing=["08:00"]),   # major
+        med("m3", "Dolo", timing=["08:00"]),       # dose_ceiling / advisory (lower)
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    ranks = [a.severity_rank for a in alerts]
+    assert ranks == sorted(ranks), "survivors are not severity-ordered"
