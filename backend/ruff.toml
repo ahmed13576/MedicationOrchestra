@@ -1,0 +1,17 @@
+# Lint configuration. CI runs `ruff check .` and fails on errors.
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",   # long strings: clinical explanations read better unwrapped
+  "RUF001", # ambiguous unicode in user-facing text is intentional (⚠️, ·)
+  "RUF002",
+  "RUF003",
+  "B008",   # FastAPI Depends()/Query() in defaults is the framework's idiom
+  "SIM108", # ternaries are not always clearer than an if
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402", "F811"]

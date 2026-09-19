@@ -1,0 +1,1224 @@
+{
+  "version": "1.1.1",
+  "review_status": "DEMONSTRATION SET - not clinician-reviewed",
+  "reviewed_by": null,
+  "reviewed_on": null,
+  "description": "Deterministic, curated interaction pairs. Each rule carries a severity, a plain-language mechanism, a management action, and a named source. Severity is NEVER inferred from prose. This is a seeded, high-yield subset of what a licensed DDI database would provide (see docs/DATA_PROVENANCE.md); every rule here must be independently verified by a clinical pharmacist before production use.",
+  "sources": {
+    "FDA_LABEL": "US FDA approved product labelling (Section 7 Drug Interactions)",
+    "BNF": "British National Formulary - interactions monograph",
+    "STOCKLEY": "Stockley's Drug Interactions (reference work; paraphrased, not reproduced)",
+    "STOPP": "STOPP/START criteria for potentially inappropriate prescribing in older people",
+    "BEERS": "AGS Beers Criteria for Potentially Inappropriate Medication Use in Older Adults",
+    "WHO": "World Health Organization guidance",
+    "NICE": "UK NICE clinical guidance"
+  },
+  "rules": [
+    {
+      "id": "ddi_warfarin_nsaid",
+      "ingredients": [
+        "aceclofenac",
+        "acenocoumarol",
+        "aspirin",
+        "celecoxib",
+        "diclofenac",
+        "etoricoxib",
+        "ibuprofen",
+        "indomethacin",
+        "ketorolac",
+        "naproxen",
+        "nimesulide",
+        "warfarin"
+      ],
+      "severity": "major",
+      "title": "Blood thinner + painkiller (NSAID) - bleeding risk",
+      "mechanism": "NSAIDs reduce platelet function and irritate the stomach lining, while warfarin reduces clotting. Together the risk of serious stomach or gut bleeding rises several-fold.",
+      "management": "Do not start an NSAID painkiller without speaking to the doctor who manages the blood thinner. If it is unavoidable, the doctor will usually add stomach protection and check the clotting test (INR) more often.",
+      "source": "FDA_LABEL",
+      "citation": "Warfarin sodium prescribing information, Drug Interactions - NSAIDs; BNF warfarin interactions",
+      "groups": [
+        [
+          "warfarin",
+          "acenocoumarol"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "ketorolac",
+          "indomethacin",
+          "etoricoxib",
+          "celecoxib",
+          "nimesulide",
+          "aspirin"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_warfarin_aspirin_antiplatelet",
+      "ingredients": [
+        "acenocoumarol",
+        "clopidogrel",
+        "dipyridamole",
+        "prasugrel",
+        "ticagrelor",
+        "warfarin"
+      ],
+      "severity": "major",
+      "title": "Blood thinner + antiplatelet - additive bleeding risk",
+      "mechanism": "Two medicines that each reduce clotting are taken together, so bleeding is more likely and harder to stop.",
+      "management": "This combination is sometimes intentional after a stent. It must only continue under a cardiologist's instruction, with a plan for how long to take both.",
+      "source": "FDA_LABEL",
+      "citation": "Clopidogrel prescribing information, Drug Interactions",
+      "groups": [
+        [
+          "warfarin",
+          "acenocoumarol"
+        ],
+        [
+          "clopidogrel",
+          "ticagrelor",
+          "prasugrel",
+          "dipyridamole"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_doac_nsaid",
+      "ingredients": [
+        "aceclofenac",
+        "apixaban",
+        "aspirin",
+        "dabigatran",
+        "diclofenac",
+        "ibuprofen",
+        "naproxen",
+        "rivaroxaban"
+      ],
+      "severity": "major",
+      "title": "Direct oral anticoagulant + NSAID - bleeding risk",
+      "mechanism": "The anticoagulant prevents clots and the NSAID impairs platelets and irritates the stomach, multiplying the bleeding risk.",
+      "management": "Prefer paracetamol for pain. If an NSAID is truly needed, it must be a short course decided by the prescriber, with stomach protection.",
+      "source": "FDA_LABEL",
+      "citation": "Apixaban / rivaroxaban prescribing information, Drug Interactions",
+      "groups": [
+        [
+          "apixaban",
+          "rivaroxaban",
+          "dabigatran"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "aspirin"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_acei_arb_potassium",
+      "ingredients": [
+        "enalapril",
+        "lisinopril",
+        "losartan",
+        "olmesartan",
+        "potassium chloride",
+        "ramipril",
+        "spironolactone",
+        "telmisartan"
+      ],
+      "severity": "major",
+      "title": "Blood pressure/heart medicine + potassium - high potassium risk",
+      "mechanism": "ACE inhibitors, ARBs and spironolactone all raise blood potassium. Adding a potassium supplement or taking two of these together can push potassium to a dangerous level, which disturbs heart rhythm.",
+      "management": "Do not take potassium supplements unless prescribed. Ask for a blood potassium test within 1-2 weeks of any change to these medicines.",
+      "source": "FDA_LABEL",
+      "citation": "Spironolactone prescribing information, Drug Interactions - ACE inhibitors and potassium supplements",
+      "groups": [
+        [
+          "ramipril",
+          "enalapril",
+          "lisinopril",
+          "telmisartan",
+          "losartan",
+          "olmesartan",
+          "spironolactone"
+        ],
+        [
+          "potassium chloride"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_acei_arb_dual_blockade",
+      "ingredients": [
+        "enalapril",
+        "lisinopril",
+        "losartan",
+        "olmesartan",
+        "ramipril",
+        "telmisartan"
+      ],
+      "severity": "major",
+      "title": "Two blood-pressure medicines from the same family - kidney and potassium risk",
+      "mechanism": "Combining an ACE inhibitor with an ARB (or either with spironolactone) increases the risk of kidney injury, low blood pressure and high potassium without adding much benefit.",
+      "management": "Usually only one of these is needed. Ask the prescriber to review the combination and check kidney function and potassium.",
+      "source": "NICE",
+      "citation": "NICE guidance on dual blockade of the renin-angiotensin system",
+      "groups": [
+        [
+          "ramipril",
+          "enalapril",
+          "lisinopril"
+        ],
+        [
+          "telmisartan",
+          "losartan",
+          "olmesartan"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_ssri_nsaid",
+      "ingredients": [
+        "aceclofenac",
+        "aspirin",
+        "citalopram",
+        "diclofenac",
+        "duloxetine",
+        "escitalopram",
+        "fluoxetine",
+        "ibuprofen",
+        "ketorolac",
+        "naproxen",
+        "paroxetine",
+        "sertraline",
+        "venlafaxine"
+      ],
+      "severity": "major",
+      "title": "Antidepressant + painkiller - stomach bleeding risk",
+      "mechanism": "SSRI/SNRI antidepressants reduce platelet function. Combined with an NSAID, the risk of stomach or gut bleeding increases roughly 3-4 fold.",
+      "management": "Use paracetamol for pain where possible. If both are needed, ask about a stomach-protecting medicine (a PPI).",
+      "source": "STOCKLEY",
+      "citation": "Stockley's Drug Interactions - selective serotonin reuptake inhibitors and NSAIDs",
+      "groups": [
+        [
+          "sertraline",
+          "fluoxetine",
+          "escitalopram",
+          "citalopram",
+          "paroxetine",
+          "venlafaxine",
+          "duloxetine"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "aspirin",
+          "ketorolac"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_ssri_anticoag",
+      "ingredients": [
+        "acenocoumarol",
+        "apixaban",
+        "citalopram",
+        "dabigatran",
+        "escitalopram",
+        "fluoxetine",
+        "paroxetine",
+        "rivaroxaban",
+        "sertraline",
+        "warfarin"
+      ],
+      "severity": "major",
+      "title": "Antidepressant + blood thinner - bleeding risk",
+      "mechanism": "The antidepressant reduces platelet function while the anticoagulant slows clotting; together the bleeding risk rises.",
+      "management": "Both are often needed. Do not stop either suddenly. Report unusual bruising, black stools or bleeding gums to the prescriber.",
+      "source": "STOCKLEY",
+      "citation": "Stockley's Drug Interactions - SSRIs and anticoagulants",
+      "groups": [
+        [
+          "sertraline",
+          "fluoxetine",
+          "escitalopram",
+          "citalopram",
+          "paroxetine"
+        ],
+        [
+          "warfarin",
+          "acenocoumarol",
+          "apixaban",
+          "rivaroxaban",
+          "dabigatran"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_ssri_triptan_serotonergic",
+      "ingredients": [
+        "amitriptyline",
+        "citalopram",
+        "duloxetine",
+        "escitalopram",
+        "fluoxetine",
+        "imipramine",
+        "linezolid",
+        "nortriptyline",
+        "paroxetine",
+        "phenelzine",
+        "sertraline",
+        "tramadol",
+        "tranylcypromine",
+        "venlafaxine"
+      ],
+      "severity": "major",
+      "title": "Two serotonin-raising medicines - serotonin syndrome risk",
+      "mechanism": "Several medicines increase serotonin in the brain. Taking two together can cause agitation, sweating, shivering, muscle twitching, fast heartbeat and, in severe cases, high fever and confusion.",
+      "management": "Do not start or stop these together on your own. Seek urgent care for shivering, muscle twitching or high fever with confusion.",
+      "source": "FDA_LABEL",
+      "citation": "Linezolid / tramadol prescribing information, serotonin syndrome warning",
+      "groups": [
+        [
+          "sertraline",
+          "fluoxetine",
+          "escitalopram",
+          "citalopram",
+          "paroxetine",
+          "venlafaxine",
+          "duloxetine"
+        ],
+        [
+          "tramadol",
+          "linezolid",
+          "tranylcypromine",
+          "phenelzine",
+          "amitriptyline",
+          "imipramine",
+          "nortriptyline"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_maoi_serotonergic",
+      "ingredients": [
+        "amitriptyline",
+        "citalopram",
+        "duloxetine",
+        "escitalopram",
+        "fluoxetine",
+        "imipramine",
+        "linezolid",
+        "paroxetine",
+        "phenelzine",
+        "sertraline",
+        "tramadol",
+        "tranylcypromine",
+        "venlafaxine"
+      ],
+      "severity": "contraindicated",
+      "title": "MAOI antidepressant mixed with another serotonin medicine - serious reaction",
+      "mechanism": "MAOIs combined with other serotonin-raising medicines can cause a severe, sometimes fatal reaction with very high fever and muscle breakdown.",
+      "management": "This combination is normally avoided. If both have been prescribed, contact the prescriber before the next dose.",
+      "source": "FDA_LABEL",
+      "citation": "Phenelzine / tranylcypromine prescribing information, contraindications",
+      "groups": [
+        [
+          "tranylcypromine",
+          "phenelzine"
+        ],
+        [
+          "sertraline",
+          "fluoxetine",
+          "escitalopram",
+          "citalopram",
+          "paroxetine",
+          "venlafaxine",
+          "duloxetine",
+          "amitriptyline",
+          "imipramine",
+          "tramadol",
+          "linezolid"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_clopidogrel_omeprazole",
+      "ingredients": [
+        "clopidogrel",
+        "esomeprazole",
+        "omeprazole"
+      ],
+      "severity": "moderate",
+      "title": "Clopidogrel + omeprazole - reduced heart protection",
+      "mechanism": "Omeprazole blocks the liver enzyme that converts clopidogrel into its active form, so clopidogrel may work less well.",
+      "management": "Ask the prescriber whether pantoprazole or rabeprazole (which interfere less) would be a better stomach medicine for you.",
+      "source": "FDA_LABEL",
+      "citation": "Clopidogrel prescribing information, Drug Interactions - proton pump inhibitors",
+      "groups": [
+        [
+          "clopidogrel"
+        ],
+        [
+          "omeprazole",
+          "esomeprazole"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_nitrate_pde5",
+      "ingredients": [
+        "isosorbide dinitrate",
+        "isosorbide mononitrate",
+        "nitroglycerin",
+        "sildenafil",
+        "tadalafil"
+      ],
+      "severity": "major",
+      "title": "Nitrate heart medicine + erectile dysfunction medicine - dangerous blood pressure drop",
+      "mechanism": "Nitrates and PDE5 inhibitors both widen blood vessels. Together they can cause a sudden, severe drop in blood pressure and fainting or a heart attack.",
+      "management": "The combination is avoided. Never take an erectile-dysfunction medicine within 24-48 hours of a nitrate - and tell any doctor treating chest pain that you take nitrates.",
+      "source": "FDA_LABEL",
+      "citation": "Sildenafil class labelling, contraindication with nitrates (nitrate list applies to all nitrates)",
+      "groups": [
+        [
+          "nitroglycerin",
+          "isosorbide mononitrate",
+          "isosorbide dinitrate"
+        ],
+        [
+          "sildenafil",
+          "tadalafil"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_sulfonylurea_betablocker",
+      "ingredients": [
+        "atenolol",
+        "bisoprolol",
+        "glibenclamide",
+        "gliclazide",
+        "glimepiride",
+        "metoprolol",
+        "propranolol"
+      ],
+      "severity": "moderate",
+      "title": "Diabetes tablet + beta blocker - low sugar may be hidden",
+      "mechanism": "Beta blockers can mask the early warning signs of low blood sugar (shaking, fast heartbeat), so a hypo may be noticed only when it is more severe.",
+      "management": "Check blood sugar more often, especially after any dose change, and treat sweating or confusion as possible low sugar.",
+      "source": "FDA_LABEL",
+      "citation": "Beta blocker class labelling, drug interactions - hypoglycaemia masking",
+      "groups": [
+        [
+          "glimepiride",
+          "glibenclamide",
+          "gliclazide"
+        ],
+        [
+          "metoprolol",
+          "atenolol",
+          "bisoprolol",
+          "propranolol"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_metoprolol_verapamil_diltiazem",
+      "ingredients": [
+        "atenolol",
+        "bisoprolol",
+        "diltiazem",
+        "metoprolol",
+        "propranolol",
+        "verapamil"
+      ],
+      "severity": "major",
+      "title": "Beta blocker + verapamil/diltiazem - slow heart rate risk",
+      "mechanism": "Both slow the electrical signals of the heart. Together they can cause a dangerously slow heart rate, low blood pressure, or heart block.",
+      "management": "This combination needs a cardiologist's supervision and a pulse check. Report dizziness, fainting or a pulse below 50.",
+      "source": "FDA_LABEL",
+      "citation": "Verapamil prescribing information, Drug Interactions - beta blockers",
+      "groups": [
+        [
+          "metoprolol",
+          "atenolol",
+          "bisoprolol",
+          "propranolol"
+        ],
+        [
+          "verapamil",
+          "diltiazem"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_digoxin_amiodarone",
+      "ingredients": [
+        "amiodarone",
+        "digoxin",
+        "diltiazem",
+        "dronedarone",
+        "spironolactone",
+        "verapamil"
+      ],
+      "severity": "major",
+      "title": "Digoxin + amiodarone-type medicine - digoxin level rises",
+      "mechanism": "These medicines reduce how quickly digoxin leaves the body, so digoxin levels can rise into the toxic range, causing nausea, visual changes and dangerous heart rhythms.",
+      "management": "The prescriber will usually reduce the digoxin dose and check a digoxin blood level. Report nausea, loss of appetite, or seeing yellow-green halos.",
+      "source": "FDA_LABEL",
+      "citation": "Amiodarone prescribing information, Drug Interactions - digoxin",
+      "groups": [
+        [
+          "digoxin"
+        ],
+        [
+          "amiodarone",
+          "dronedarone",
+          "verapamil",
+          "diltiazem",
+          "spironolactone"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_digoxin_diuretic_hypokalaemia",
+      "ingredients": [
+        "chlorthalidone",
+        "digoxin",
+        "furosemide",
+        "hydrochlorothiazide",
+        "torsemide"
+      ],
+      "severity": "moderate",
+      "title": "Digoxin + water tablet - low potassium increases digoxin toxicity",
+      "mechanism": "Water tablets (diuretics) can lower potassium levels, which makes the heart more sensitive to digoxin and increases the risk of toxicity.",
+      "management": "Ask for potassium and kidney function checks, and report muscle cramps, palpitations or nausea.",
+      "source": "FDA_LABEL",
+      "citation": "Digoxin prescribing information, Drug Interactions - diuretics",
+      "groups": [
+        [
+          "digoxin"
+        ],
+        [
+          "furosemide",
+          "torsemide",
+          "hydrochlorothiazide",
+          "chlorthalidone"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_metoclopramide_antipsychotic_eps",
+      "ingredients": [
+        "domperidone",
+        "haloperidol",
+        "metoclopramide",
+        "olanzapine",
+        "promethazine",
+        "quetiapine",
+        "risperidone"
+      ],
+      "severity": "moderate",
+      "title": "Two medicines that block dopamine - movement side effects",
+      "mechanism": "Both medicines block dopamine. Together they are more likely to cause stiffness, tremor, restlessness or involuntary movements, which are especially risky in older people.",
+      "management": "Ask the prescriber to review whether both are needed. Report any new stiffness, tremor or restlessness.",
+      "source": "BEERS",
+      "citation": "AGS Beers Criteria - antipsychotics and metoclopramide in older adults",
+      "groups": [
+        [
+          "metoclopramide"
+        ],
+        [
+          "haloperidol",
+          "risperidone",
+          "olanzapine",
+          "quetiapine",
+          "promethazine",
+          "domperidone"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_anticholinergic_burden",
+      "ingredients": [
+        "amitriptyline",
+        "chlorpheniramine",
+        "diphenhydramine",
+        "hydroxyzine",
+        "imipramine",
+        "nortriptyline",
+        "promethazine"
+      ],
+      "severity": "moderate",
+      "title": "Several drying medicines together - confusion and falls risk",
+      "mechanism": "These medicines block acetylcholine. Adding them together causes dry mouth, constipation, blurred vision, urinary retention and - importantly in older people - confusion and falls.",
+      "management": "Ask the prescriber how many of these can be reduced or replaced. Keep a list of all your medicines to make this review possible.",
+      "source": "BEERS",
+      "citation": "AGS Beers Criteria - anticholinergic burden in older adults",
+      "groups": [
+        [
+          "amitriptyline",
+          "imipramine",
+          "nortriptyline"
+        ],
+        [
+          "diphenhydramine",
+          "chlorpheniramine",
+          "hydroxyzine",
+          "promethazine"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_benzodiazepine_opioid_sedation",
+      "ingredients": [
+        "alprazolam",
+        "buprenorphine",
+        "clobazam",
+        "clonazepam",
+        "codeine",
+        "diazepam",
+        "eszopiclone",
+        "fentanyl",
+        "lorazepam",
+        "morphine",
+        "tapentadol",
+        "tramadol",
+        "zolpidem"
+      ],
+      "severity": "major",
+      "title": "Sleeping/calming medicine + strong painkiller - breathing depression",
+      "mechanism": "Both suppress the part of the brain that controls breathing. Together they can cause deep sedation, slowed breathing and, in older people, falls and confusion.",
+      "management": "This combination carries a serious warning. Use the lowest dose for the shortest time, never add alcohol, and treat excessive drowsiness as an emergency.",
+      "source": "FDA_LABEL",
+      "citation": "Opioid prescribing information - boxed warning for benzodiazepines",
+      "groups": [
+        [
+          "diazepam",
+          "alprazolam",
+          "lorazepam",
+          "clonazepam",
+          "clobazam",
+          "zolpidem",
+          "eszopiclone"
+        ],
+        [
+          "tramadol",
+          "codeine",
+          "morphine",
+          "fentanyl",
+          "tapentadol",
+          "buprenorphine"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_gabapentinoid_opioid",
+      "ingredients": [
+        "buprenorphine",
+        "codeine",
+        "fentanyl",
+        "gabapentin",
+        "morphine",
+        "pregabalin",
+        "tapentadol",
+        "tramadol"
+      ],
+      "severity": "major",
+      "title": "Nerve-pain medicine + strong painkiller - sedation and breathing risk",
+      "mechanism": "Pregabalin/gabapentin add to the sedating and breathing-slowing effect of opioids.",
+      "management": "Ask the prescriber whether both are needed and at what dose. Report excessive drowsiness or slow breathing.",
+      "source": "FDA_LABEL",
+      "citation": "Gabapentin class labelling, Drug Interactions - opioids",
+      "groups": [
+        [
+          "pregabalin",
+          "gabapentin"
+        ],
+        [
+          "tramadol",
+          "codeine",
+          "morphine",
+          "fentanyl",
+          "tapentadol",
+          "buprenorphine"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_statin_clarithromycin",
+      "ingredients": [
+        "atorvastatin",
+        "clarithromycin",
+        "erythromycin",
+        "itraconazole",
+        "ketoconazole",
+        "ritonavir",
+        "simvastatin"
+      ],
+      "severity": "major",
+      "title": "Statin + certain antibiotics/antifungals - muscle damage risk",
+      "mechanism": "These antibiotics and antifungals block the liver enzyme that clears statins, so statin levels rise and can cause severe muscle injury (rhabdomyolysis) and kidney damage.",
+      "management": "Statin doses are usually paused during the antibiotic course. Report muscle pain, weakness or dark urine immediately.",
+      "source": "FDA_LABEL",
+      "citation": "Simvastatin prescribing information - contraindications with strong CYP3A4 inhibitors",
+      "groups": [
+        [
+          "simvastatin",
+          "atorvastatin"
+        ],
+        [
+          "clarithromycin",
+          "erythromycin",
+          "itraconazole",
+          "ketoconazole",
+          "ritonavir"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_colchicine_clarithromycin",
+      "ingredients": [
+        "clarithromycin",
+        "colchicine",
+        "cyclosporine",
+        "erythromycin",
+        "itraconazole",
+        "ketoconazole",
+        "tacrolimus",
+        "verapamil"
+      ],
+      "severity": "major",
+      "title": "Colchicine + certain antibiotics - colchicine toxicity",
+      "mechanism": "These medicines slow the removal of colchicine, which can then build up and cause severe - sometimes fatal - blood, muscle and organ toxicity.",
+      "management": "Doses are usually reduced or stopped during the interacting medicine. Report muscle weakness, numbness, unusual bleeding or fever urgently.",
+      "source": "FDA_LABEL",
+      "citation": "Colchicine prescribing information - boxed warning, fatal toxicity with CYP3A4/P-gp inhibitors",
+      "groups": [
+        [
+          "colchicine"
+        ],
+        [
+          "clarithromycin",
+          "erythromycin",
+          "itraconazole",
+          "ketoconazole",
+          "verapamil",
+          "cyclosporine",
+          "tacrolimus"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_allopurinol_azathioprine",
+      "ingredients": [
+        "allopurinol",
+        "azathioprine"
+      ],
+      "severity": "contraindicated",
+      "title": "Allopurinol + azathioprine - dangerous blood count drop",
+      "mechanism": "Allopurinol blocks the enzyme that clears azathioprine. Azathioprine levels rise sharply and can suppress the bone marrow, causing severe anaemia and infections.",
+      "management": "This pair requires dose reduction (usually to a quarter) and close blood-count monitoring under a specialist. Do not change doses without the specialist.",
+      "source": "FDA_LABEL",
+      "citation": "Azathioprine prescribing information - boxed warning, allopurinol interaction",
+      "groups": [
+        [
+          "allopurinol"
+        ],
+        [
+          "azathioprine"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_methotrexate_nsaid",
+      "ingredients": [
+        "aceclofenac",
+        "aspirin",
+        "diclofenac",
+        "ibuprofen",
+        "ketorolac",
+        "methotrexate",
+        "naproxen"
+      ],
+      "severity": "major",
+      "title": "Methotrexate + NSAID - methotrexate level rises",
+      "mechanism": "NSAIDs reduce how quickly methotrexate is cleared by the kidneys, so levels can rise and cause mouth ulcers, blood count falls and liver or lung injury.",
+      "management": "Occasional doses may be acceptable but must be discussed with the prescriber. Report mouth ulcers, fever, breathlessness or unusual bruising.",
+      "source": "FDA_LABEL",
+      "citation": "Methotrexate prescribing information - boxed warning, interactions",
+      "groups": [
+        [
+          "methotrexate"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "aspirin",
+          "ketorolac"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_levothyroxine_iron_calcium",
+      "ingredients": [
+        "aluminium hydroxide",
+        "calcium acetate",
+        "calcium carbonate",
+        "ferrous ascorbate",
+        "levothyroxine",
+        "magnesium hydroxide",
+        "potassium chloride"
+      ],
+      "severity": "moderate",
+      "title": "Thyroid tablet + iron/calcium/antacid - thyroid tablet absorbed poorly",
+      "mechanism": "Iron, calcium and antacids bind levothyroxine in the gut so less of it is absorbed, and the thyroid dose can stop working properly.",
+      "management": "Leave at least 4 hours between the thyroid tablet and iron, calcium or antacid. Take levothyroxine on an empty stomach in the morning.",
+      "source": "FDA_LABEL",
+      "citation": "Levothyroxine prescribing information - Drug Interactions, absorption",
+      "groups": [
+        [
+          "levothyroxine"
+        ],
+        [
+          "ferrous ascorbate",
+          "calcium carbonate",
+          "aluminium hydroxide",
+          "magnesium hydroxide",
+          "calcium acetate",
+          "potassium chloride"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_fluoroquinolone_cation",
+      "ingredients": [
+        "aluminium hydroxide",
+        "calcium carbonate",
+        "ciprofloxacin",
+        "ferrous ascorbate",
+        "levofloxacin",
+        "magnesium hydroxide",
+        "norfloxacin",
+        "ofloxacin",
+        "sucralfate",
+        "zinc sulfate"
+      ],
+      "severity": "moderate",
+      "title": "Certain antibiotics + antacid/iron/calcium - antibiotic stops working",
+      "mechanism": "Aluminium, magnesium, calcium and iron bind these antibiotics in the gut so very little is absorbed, and the infection may not clear.",
+      "management": "Take the antibiotic at least 2 hours before, or 6 hours after, the antacid, iron or calcium product.",
+      "source": "FDA_LABEL",
+      "citation": "Ciprofloxacin prescribing information, Drug Interactions - cation chelation",
+      "groups": [
+        [
+          "ciprofloxacin",
+          "levofloxacin",
+          "ofloxacin",
+          "norfloxacin"
+        ],
+        [
+          "ferrous ascorbate",
+          "calcium carbonate",
+          "aluminium hydroxide",
+          "magnesium hydroxide",
+          "zinc sulfate",
+          "sucralfate"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_rifampicin_hormonal_anticoag",
+      "ingredients": [
+        "acenocoumarol",
+        "apixaban",
+        "dabigatran",
+        "rifampicin",
+        "rivaroxaban",
+        "warfarin"
+      ],
+      "severity": "major",
+      "title": "TB medicine + blood thinner - blood thinner stops working",
+      "mechanism": "Rifampicin strongly speeds up liver enzymes that break down anticoagulants, so levels fall and the protection against clots can be lost.",
+      "management": "Anticoagulant doses usually need to be increased and monitored closely during and after the TB course. Never adjust without the prescriber.",
+      "source": "FDA_LABEL",
+      "citation": "Rifampicin prescribing information, Drug Interactions - anticoagulants",
+      "groups": [
+        [
+          "rifampicin"
+        ],
+        [
+          "warfarin",
+          "acenocoumarol",
+          "apixaban",
+          "rivaroxaban",
+          "dabigatran"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_carbamazepine_phenytoin_anticoag",
+      "ingredients": [
+        "acenocoumarol",
+        "apixaban",
+        "carbamazepine",
+        "dabigatran",
+        "phenytoin",
+        "rivaroxaban",
+        "warfarin"
+      ],
+      "severity": "major",
+      "title": "Epilepsy medicine + blood thinner - blood thinner may stop working",
+      "mechanism": "Carbamazepine and phenytoin speed up the enzymes that clear many medicines, including anticoagulants, so blood thinner levels fall.",
+      "management": "Close anticoagulation monitoring is needed during any dose change of either medicine.",
+      "source": "FDA_LABEL",
+      "citation": "Carbamazepine prescribing information, Drug Interactions",
+      "groups": [
+        [
+          "carbamazepine",
+          "phenytoin"
+        ],
+        [
+          "warfarin",
+          "acenocoumarol",
+          "apixaban",
+          "rivaroxaban",
+          "dabigatran"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_steroid_nsaid",
+      "ingredients": [
+        "aceclofenac",
+        "aspirin",
+        "deflazacort",
+        "dexamethasone",
+        "diclofenac",
+        "hydrocortisone",
+        "ibuprofen",
+        "ketorolac",
+        "methylprednisolone",
+        "naproxen",
+        "prednisolone",
+        "prednisone"
+      ],
+      "severity": "major",
+      "title": "Steroid + painkiller - stomach ulcer and bleeding risk",
+      "mechanism": "Both steroids and NSAIDs damage the stomach lining. Together they multiply the risk of ulcers and serious bleeding.",
+      "management": "Avoid taking them together where possible, or use a stomach-protecting medicine as advised by the prescriber.",
+      "source": "STOCKLEY",
+      "citation": "Stockley's Drug Interactions - corticosteroids and NSAIDs",
+      "groups": [
+        [
+          "prednisolone",
+          "prednisone",
+          "dexamethasone",
+          "methylprednisolone",
+          "deflazacort",
+          "hydrocortisone"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "aspirin",
+          "ketorolac"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_acei_arb_nsaid_kidney",
+      "ingredients": [
+        "aceclofenac",
+        "diclofenac",
+        "enalapril",
+        "furosemide",
+        "ibuprofen",
+        "lisinopril",
+        "losartan",
+        "naproxen",
+        "olmesartan",
+        "ramipril",
+        "spironolactone",
+        "telmisartan"
+      ],
+      "severity": "major",
+      "title": "Blood pressure/water tablet + painkiller - kidney injury risk",
+      "mechanism": "NSAIDs reduce blood flow to the kidneys while ACE inhibitors/ARBs and diuretics also depend on kidney function - together (the 'triple whammy') they can cause acute kidney injury.",
+      "management": "Use paracetamol instead of NSAIDs where possible. If an NSAID is essential, ask for kidney function checks and keep the course short.",
+      "source": "NICE",
+      "citation": "NICE CKD guidance - avoid NSAIDs in people on ACE inhibitors/ARBs and diuretics",
+      "groups": [
+        [
+          "ramipril",
+          "enalapril",
+          "lisinopril",
+          "telmisartan",
+          "losartan",
+          "olmesartan",
+          "spironolactone",
+          "furosemide"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_lithium_nsaid_acei",
+      "ingredients": [
+        "aspirin",
+        "diclofenac",
+        "enalapril",
+        "furosemide",
+        "hydrochlorothiazide",
+        "ibuprofen",
+        "lisinopril",
+        "lithium",
+        "losartan",
+        "naproxen",
+        "ramipril",
+        "telmisartan"
+      ],
+      "severity": "major",
+      "title": "Lithium + painkiller/blood pressure medicine - lithium toxicity",
+      "mechanism": "NSAIDs, ACE inhibitors, ARBs and diuretics reduce lithium clearance. Lithium levels rise and can cause tremor, vomiting, confusion and seizures.",
+      "management": "Lithium levels must be checked whenever these medicines are started or stopped. Report tremor, vomiting or confusion urgently.",
+      "source": "FDA_LABEL",
+      "citation": "Lithium prescribing information, Drug Interactions - reduced renal clearance",
+      "groups": [
+        [
+          "lithium"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aspirin",
+          "ramipril",
+          "enalapril",
+          "lisinopril",
+          "telmisartan",
+          "losartan",
+          "hydrochlorothiazide",
+          "furosemide"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_steroid_diabetes",
+      "ingredients": [
+        "dapagliflozin",
+        "deflazacort",
+        "dexamethasone",
+        "empagliflozin",
+        "glibenclamide",
+        "gliclazide",
+        "glimepiride",
+        "hydrocortisone",
+        "insulin glargine",
+        "insulin regular",
+        "metformin",
+        "methylprednisolone",
+        "pioglitazone",
+        "prednisolone",
+        "prednisone",
+        "sitagliptin",
+        "vildagliptin"
+      ],
+      "severity": "moderate",
+      "title": "Steroid + diabetes medicine - blood sugar rises",
+      "mechanism": "Steroids raise blood sugar. Diabetes medicines may no longer be enough while the steroid is being taken.",
+      "management": "Check blood sugar more often while on the steroid, and ask the prescriber whether the diabetes dose needs adjusting.",
+      "source": "FDA_LABEL",
+      "citation": "Corticosteroid class labelling - hyperglycaemia",
+      "groups": [
+        [
+          "prednisolone",
+          "prednisone",
+          "dexamethasone",
+          "methylprednisolone",
+          "deflazacort",
+          "hydrocortisone"
+        ],
+        [
+          "metformin",
+          "glimepiride",
+          "glibenclamide",
+          "gliclazide",
+          "insulin glargine",
+          "insulin regular",
+          "sitagliptin",
+          "vildagliptin",
+          "empagliflozin",
+          "dapagliflozin",
+          "pioglitazone"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_aspirin_antiplatelet",
+      "ingredients": [
+        "aspirin",
+        "clopidogrel",
+        "dipyridamole",
+        "prasugrel",
+        "ticagrelor"
+      ],
+      "severity": "major",
+      "mechanism": "Additive inhibition of platelet aggregation increases bleeding risk (dual antiplatelet therapy).",
+      "management": "This combination is often prescribed deliberately (for example after a stent). Do not stop either medicine on your own. Watch for unusual bruising, black stools, blood in urine or prolonged bleeding, and report them promptly.",
+      "source": "FDA_LABEL",
+      "citation": "Clopidogrel prescribing information: co-administration with aspirin increases bleeding risk; dual antiplatelet therapy is used under cardiology supervision.",
+      "reviewed_by": null,
+      "title": "Two antiplatelet medicines together - bleeding risk",
+      "groups": [
+        [
+          "aspirin"
+        ],
+        [
+          "clopidogrel",
+          "ticagrelor",
+          "prasugrel",
+          "dipyridamole"
+        ]
+      ]
+    },
+    {
+      "id": "ddi_aspirin_nsaid",
+      "title": "Aspirin + another painkiller (NSAID) - protection is reduced",
+      "groups": [
+        [
+          "aspirin"
+        ],
+        [
+          "ibuprofen",
+          "naproxen",
+          "diclofenac",
+          "aceclofenac",
+          "ketorolac",
+          "indomethacin",
+          "etoricoxib",
+          "celecoxib",
+          "nimesulide"
+        ]
+      ],
+      "ingredients": [
+        "aspirin",
+        "ibuprofen",
+        "naproxen",
+        "diclofenac",
+        "aceclofenac",
+        "ketorolac",
+        "indomethacin",
+        "etoricoxib",
+        "celecoxib",
+        "nimesulide"
+      ],
+      "severity": "moderate",
+      "mechanism": "Ibuprofen-type painkillers can block the antiplatelet effect of low-dose aspirin, so the aspirin may no longer protect the heart as intended, and the pair also increases stomach irritation and bleeding.",
+      "management": "If both are needed, take the aspirin at least 30 minutes before, or more than 8 hours after, the other painkiller - or ask the doctor about using paracetamol instead. Do not stop a prescribed low-dose aspirin on your own.",
+      "source": "FDA_LABEL",
+      "citation": "Ibuprofen prescribing information: concomitant use with aspirin may interfere with the antiplatelet effect of low-dose aspirin; FDA information for healthcare professionals on the concomitant use of ibuprofen and aspirin.",
+      "reviewed_by": null
+    }
+  ],
+  "advisories": [
+    {
+      "id": "adv_metformin_illness_contrast",
+      "ingredients": [
+        "metformin"
+      ],
+      "severity": "moderate",
+      "title": "Metformin: pause during severe illness or before a contrast scan",
+      "mechanism": "Metformin is cleared by the kidneys. If the kidneys are stressed - dehydration, severe infection, or an iodine contrast scan - metformin can build up and, rarely, cause a dangerous build-up of acid in the blood.",
+      "management": "Pause metformin if you have severe vomiting, diarrhoea or dehydration, and tell the radiology team before any contrast scan. Ask when to restart. Avoid regular heavy drinking.",
+      "source": "FDA_LABEL",
+      "citation": "Metformin prescribing information - boxed warning, lactic acidosis; contrast media"
+    },
+    {
+      "id": "adv_levothyroxine_timing",
+      "ingredients": [
+        "levothyroxine"
+      ],
+      "severity": "minor",
+      "title": "Thyroid tablet: take on an empty stomach, away from iron and calcium",
+      "mechanism": "Levothyroxine is poorly absorbed when taken with food, iron, calcium or antacids.",
+      "management": "Take it first thing in the morning with water, at least 30-60 minutes before food, and at least 4 hours away from iron, calcium or antacid products.",
+      "source": "FDA_LABEL",
+      "citation": "Levothyroxine prescribing information - administration"
+    },
+    {
+      "id": "adv_pppi_long_term_b12",
+      "ingredients": [
+        "omeprazole",
+        "pantoprazole",
+        "rabeprazole",
+        "esomeprazole"
+      ],
+      "severity": "minor",
+      "title": "Long-term stomach acid tablets: ask about vitamin B12, magnesium and bone health",
+      "mechanism": "Acid-suppressing tablets taken for months or years can reduce vitamin B12 and magnesium absorption and are associated with a slightly higher risk of fracture.",
+      "management": "Ask the prescriber at least yearly whether the acid tablet is still needed, and whether B12, magnesium and calcium/vitamin D should be checked.",
+      "source": "FDA_LABEL",
+      "citation": "Proton pump inhibitor class labelling - hypomagnesaemia, B12 deficiency, fractures"
+    }
+  ],
+  "duplicate_ingredient_ceilings": {
+    "paracetamol": {
+      "ceiling_mg_per_day": 4000,
+      "elderly_ceiling_mg_per_day": 3000,
+      "max_single_dose_mg": 1000,
+      "source": "FDA_LABEL",
+      "citation": "Acetaminophen: maximum daily dose 4 g; lower limits advised in older/frail adults and chronic alcohol use"
+    },
+    "ibuprofen": {
+      "ceiling_mg_per_day": 3200,
+      "elderly_ceiling_mg_per_day": 1200,
+      "max_single_dose_mg": 800,
+      "source": "FDA_LABEL",
+      "citation": "Ibuprofen prescribing information - maximally effective single dose 400-800 mg; lowest effective dose in older adults"
+    },
+    "aspirin": {
+      "ceiling_mg_per_day": 4000,
+      "elderly_ceiling_mg_per_day": 325,
+      "max_single_dose_mg": 1000,
+      "source": "FDA_LABEL",
+      "citation": "Aspirin dosing - analgesic doses vs antiplatelet doses in older adults"
+    },
+    "diclofenac": {
+      "ceiling_mg_per_day": 150,
+      "elderly_ceiling_mg_per_day": 100,
+      "max_single_dose_mg": 50,
+      "source": "FDA_LABEL",
+      "citation": "Diclofenac prescribing information - older adults"
+    }
+  },
+  "changelog": [
+    {
+      "version": "1.0.1",
+      "change": "added aspirin/antiplatelet-native combination rule"
+    },
+    {
+      "version": "1.1.0",
+      "change": "each rule now declares mechanism groups; an alert fires only when the patient's ingredients span two different groups (prevents e.g. two NSAIDs triggering the SSRI+NSAID rule)"
+    },
+    {
+      "version": "1.1.1",
+      "change": "added aspirin + other-NSAID rule (antiplatelet interference)"
+    }
+  ]
+}

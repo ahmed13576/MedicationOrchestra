@@ -18,9 +18,12 @@ db_drug_interactions.csv
 monitoring_dashboard.json
 .env
 
-# Large database generation files
-backend/data/ddi_processed.json
-backend/data/ddi_index.jsonl
+# Generated clinical corpora. The DrugBank-derived files used to be built here
+# and were gitignored - which is exactly how the deployed image ended up with an
+# empty interaction database. The shipped knowledge base lives in
+# backend/knowledge/ and is tracked in git on purpose.
+backend/data/
+*.jsonl
 
 # Google Course Materials / PDFs
 google/
