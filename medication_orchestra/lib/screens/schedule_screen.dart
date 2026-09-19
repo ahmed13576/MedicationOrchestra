@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../config/api_config.dart';
+import '../services/fcm_service.dart';
 import '../services/local_cache_service.dart';
 
 /// Displays the AI-generated safe daily medication schedule.
@@ -25,6 +26,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   List<Map<String, dynamic>> _doseTimes = [];
   List<String> _safetyNotes = [];
   int _interactionCount = 0;
+
+  /// How many OS-level dose reminders were scheduled. If this is 0 the user
+  /// must be told: showing the timetable is not the same promise as the phone
+  /// waking them up for it.
+  int _remindersScheduled = 0;
+
+  /// How many OS-level dose reminders were scheduled. Zero while reminders are
+  /// unsupported or permission was refused, which the UI must say out loud:
+  /// "your dose times are shown here" is not the same promise as "your phone
+  /// will remind you".
+  int _remindersScheduled = 0;
 
   /// Timestamp of the last successful data load (local or network).
   DateTime? _cachedAt;
@@ -66,17 +78,31 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final token    = await _getAuthToken();
       final response = await _dio.post(
         '${ApiConfig.baseUrl}/api/v1/schedule/generate',
+        queryParameters: {'profile_id': pid},
         options: Options(
           headers: {'Authorization': 'Bearer $token'},
           receiveTimeout: const Duration(seconds: 90),
         ),
       );
 
-      final data     = response.data as Map<String, dynamic>;
-      final schedule = data['schedule'] as Map<String, dynamic>? ?? {};
+      final data = response.data as Map<String, dynamic>;
+      // profile_id='all' returns one schedule per patient; the caller (this
+      // screen) is scoped, so take the matching one and fall back to the only
+      // schedule when the household has a single patient.
+      final schedules = (data['schedules'] as List<dynamic>?) ?? const [];
+      final singleton = data['schedule'] as Map<String, dynamic>?;
+      final schedule = singleton ??
+          (schedules.isEmpty
+              ? <String, dynamic>{}
+              : Map<String, dynamic>.from(schedules.first as Map));
 
       // ── Step 3: Persist fresh schedule to local cache ──────────────────
       await LocalCacheService.saveSchedule(pid, today, schedule);
+
+      // The reminders are scheduled from the *verified* dose times the backend
+      // just produced - never from a locally invented timetable. If nothing
+      // could be scheduled the user is told, instead of assuming it happened.
+      await _scheduleReminders(schedule);
 
       if (mounted) {
         _applyScheduleData(
@@ -112,6 +138,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       } else if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// Ask the OS to remind the user at each verified dose time.
+  Future<void> _scheduleReminders(Map<String, dynamic> schedule) async {
+    final doseTimes = (schedule['dose_times'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    if (doseTimes.isEmpty) return;
+
+    try {
+      final count = await FcmService.scheduleDailyDoses(doseTimes);
+      setState(() => _remindersScheduled = count);
+    } catch (e) {
+      debugPrint('[Schedule] Could not schedule reminders: $e');
+      if (mounted) setState(() => _remindersScheduled = 0);
     }
   }
 
@@ -171,7 +214,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 32),
               child: Text(
-                'Generating your safe schedule with AI…\nThis checks all your medications for interactions.',
+                'Building your dose schedule…\n'
+                'Every dose is checked for interactions and the gaps between them.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
@@ -303,6 +347,47 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             ),
           ),
 
+        // ── Reminder banner ───────────────────────────────────────────────────
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _remindersScheduled > 0
+                ? Colors.blue.shade50
+                : Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _remindersScheduled > 0
+                    ? Icons.notifications_active_outlined
+                    : Icons.notifications_off_outlined,
+                size: 18,
+                color: _remindersScheduled > 0
+                    ? Colors.blue.shade700
+                    : Colors.orange.shade800,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _remindersScheduled > 0
+                      ? 'Reminders set for $_remindersScheduled dose time(s) on this phone.'
+                      : 'Reminders are not set on this phone - allow notifications to be '
+                          'reminded at these times.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _remindersScheduled > 0
+                        ? Colors.blue.shade900
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
         // Dose time cards
         ..._doseTimes.asMap().entries.map((entry) {
           return _buildDoseTimeCard(entry.key, entry.value);
@@ -339,8 +424,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
         const SizedBox(height: 16),
         const Text(
-          'This schedule is generated by AI based on your medications and detected interactions. '
-          'Always consult your doctor before changing your medication routine.',
+          'This schedule is built by a fixed set of clinical rules from your medication list, '
+          'and independently re-checked before it is shown. Always consult your doctor before '
+          'changing your medication routine.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: Colors.grey),
         ),
