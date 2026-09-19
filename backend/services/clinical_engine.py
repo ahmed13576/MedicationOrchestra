@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Part of the open core of Medication Orchestra. See LICENSING.md.
 """
 clinical_engine.py — Medication Orchestra
 

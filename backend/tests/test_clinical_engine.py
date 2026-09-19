@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Part of the open core of Medication Orchestra. See LICENSING.md.
 """The deterministic safety core.
 
 Every test here corresponds to a promise the product makes to a patient:

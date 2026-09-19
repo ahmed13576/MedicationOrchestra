@@ -1,0 +1,34 @@
+Medication Orchestra
+Copyright (c) 2025-2026 the Medication Orchestra authors
+
+This repository is open-core. Two licences apply, and which one applies depends
+on the file:
+
+1. THE SAFETY ENGINE AND ITS KNOWLEDGE BASE ARE OPEN SOURCE (Apache-2.0).
+
+   Specifically:
+     backend/services/clinical_engine.py
+     backend/knowledge/**            (ingredients, interaction rules, brands)
+     scripts/safety_invariant_audit.py
+     backend/tests/test_clinical_engine.py
+     backend/tests/test_safety_invariants.py   (if present)
+
+   These are licensed under the Apache License, Version 2.0, the full text of
+   which is in LICENSES/Apache-2.0.txt. They are open on purpose: a rule that
+   decides whether two medicines may be taken together should be readable and
+   challengeable by any pharmacist, and a safety claim nobody can inspect is
+   not a safety claim.
+
+2. EVERYTHING ELSE IS PROPRIETARY. ALL RIGHTS RESERVED.
+
+   The API service, the mobile client, the deployment tooling and the
+   documentation may not be copied, modified, distributed, sublicensed or used
+   to provide a service, in whole or in part, without the prior written
+   permission of the copyright holders.
+
+NO WARRANTY, AND NOT MEDICAL ADVICE. This software is provided "as is", without
+warranty of any kind. The knowledge base is a DEMONSTRATION SET and has not
+been reviewed by a clinician. It is not medical advice, not a medical device,
+and must not be relied on for treatment decisions.
+
+See LICENSING.md for what this means in practice.
