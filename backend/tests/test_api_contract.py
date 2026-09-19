@@ -437,6 +437,33 @@ def test_schedule_is_verified_and_reports_partial_feasibility(api):
     assert body["model_calls_in_decision_path"] == 0
 
 
+def test_low_confidence_survives_json_and_gates_the_schedule(api):
+    """S-7: the confidence of a reading must survive storage and serialization
+    (the usual place this field is lost), and a medicine we are not sure about
+    must reach the client as "please check", not as a reminder time."""
+    profile_id = api.post("/api/v1/profiles", json={"name": "Mum"}).json()["profile_id"]
+    saved = api.post("/api/v1/medications/manual", json={
+        "profile_id": profile_id, "brand_name": "Squiggle pill", "dosage": "1 tab",
+        "frequency_raw": "OD", "timing": ["08:00"],
+    }).json()
+    med_id = saved["medication_id"]
+
+    listed = api.get(f"/api/v1/profiles/{profile_id}/medications").json()["medications"][0]
+    assert listed["resolution_confidence"] == "none"
+
+    schedule = api.post("/api/v1/schedule/generate").json()["schedules"][0]
+    assert [w["med_id"] for w in schedule["awaiting_confirmation"]] == [med_id]
+    assert schedule["dose_times"] == []
+
+    # A person confirms the identity; only then does it get a reminder time.
+    assert api.post(
+        f"/api/v1/profiles/{profile_id}/medications/{med_id}/confirm-identity"
+    ).status_code == 200
+    after = api.post("/api/v1/schedule/generate").json()["schedules"][0]
+    assert after["awaiting_confirmation"] == []
+    assert [m["med_id"] for d in after["dose_times"] for m in d["medications"]] == [med_id]
+
+
 def test_schedule_with_no_medications_says_so(api):
     body = api.post("/api/v1/schedule/generate").json()
     assert body["schedules"] == []

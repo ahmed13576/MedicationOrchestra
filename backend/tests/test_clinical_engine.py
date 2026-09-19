@@ -390,14 +390,15 @@ def test_verifier_accepts_a_good_schedule(registry):
 
 
 def test_schedule_flags_medicines_whose_ingredients_are_unknown(registry):
+    """S-7 changed this from "scheduled with a warning" to "not scheduled": an
+    unidentified medicine is reported, never placed in the timetable."""
     meds = [med("m1", "Mystery pill", timing=["08:00"])]
     alerts, _ = check_patient(meds, "p1", registry=registry)
     schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
-    entry = next(
-        m for d in schedule["dose_times"] for m in d["medications"] if m["med_id"] == "m1"
-    )
-    assert entry["interaction_warning"], "an unidentified medicine must not look verified"
+    placed = [m for d in schedule["dose_times"] for m in d["medications"] if m["med_id"] == "m1"]
+    assert placed == [], "an unidentified medicine must not be given a dose time"
     assert schedule["unchecked_medications"]
+    assert [w["med_id"] for w in schedule["awaiting_confirmation"]] == ["m1"]
 
 
 def test_as_needed_medicines_are_not_scheduled(registry):
@@ -687,3 +688,47 @@ def test_duplicate_therapy_pair_is_never_co_located(registry):
         ids = {m.get("med_id") for m in dt.get("medications", [])}
         assert not {"m1", "m2"} <= ids, f"two NSAIDs co-located at {dt['time']}"
 
+
+
+# ── S-7: confidence gates scheduling ─────────────────────────────────────────
+
+
+def test_a_low_confidence_medicine_is_never_scheduled_silently(registry):
+    """A medicine we are not sure we read gets no reminder time at all; it is
+    listed for a person to check, in plain words and without a percentage."""
+    meds = [med("m1", "Mystery pill", timing=["08:00"])]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    scheduled = {m["med_id"] for d in schedule["dose_times"] for m in d["medications"]}
+    assert "m1" not in scheduled, "an unverified medicine must not get a reminder"
+    waiting = schedule["awaiting_confirmation"]
+    assert [w["med_id"] for w in waiting] == ["m1"]
+    assert "not sure" in waiting[0]["note"].lower()
+    assert "%" not in waiting[0]["note"]
+    assert schedule["schedule_status"] == "partial"
+    assert schedule["unchecked_medications"]
+
+
+def test_a_confirmed_low_confidence_medicine_is_scheduled(registry):
+    """Confirmation is a human act recorded on the record; once it exists the
+    medicine joins the timetable. Nothing else about the medicine changed."""
+    item = med("m1", "Mystery pill", timing=["08:00"])
+    item["identity_confirmed"] = True
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    scheduled = {m["med_id"] for d in schedule["dose_times"] for m in d["medications"]}
+    assert "m1" in scheduled
+    assert schedule["awaiting_confirmation"] == []
+    # Confirming the identity does not claim the ingredients were identified.
+    assert schedule["unchecked_medications"]
+
+
+def test_a_low_reading_confidence_also_blocks_scheduling(registry):
+    """The reader's own "low" confidence in the label is enough to hold a
+    medicine back, even when the brand resolves cleanly."""
+    item = med("m1", "Brufen", timing=["08:00"])
+    item["confidence"] = "low"
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    assert schedule["dose_times"] == []
+    assert schedule["awaiting_confirmation"][0]["reason"] == "reading_not_confirmed"

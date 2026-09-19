@@ -209,14 +209,24 @@ the finished schedule with an independent checker** before returning it.
     "generated_by": "deterministic_solver",
     "knowledge_base": { "…": "…" },
     "review_status": "DEMONSTRATION SET - not clinician-reviewed",
-    "unchecked_medications": [] } ],
+    "unchecked_medications": [],
+    "awaiting_confirmation": [                   // held out of the timetable
+      { "med_id": "…", "med_name": "…", "reason": "ingredients_not_identified",
+        "note": "We are not sure we read this medicine correctly, so it has no reminder times yet. Please check it." } ] } ],
   "schedule": { "…": "…" },                    // present only for a single patient
   "interactions": [], "interaction_count": 0, "critical_count": 0,
   "unchecked": [], "coverage": { "…": "…" },
   "model_calls_in_decision_path": 0 }
 ```
+`awaiting_confirmation` lists medicines read with low confidence
+(`resolution_confidence` of `low`/`none`, or a `confidence` of `low` from the
+reader). They get no dose times until a person confirms the identity with
+`POST /api/v1/profiles/{profile_id}/medications/{med_id}/confirm-identity`,
+which stores `identity_confirmed` with who and when. Confidence is never shown
+as a percentage: the honest phrasing is "not sure, please check".
+
 `partial` means some prescribed doses could not be placed while honouring every
-required gap — the client shows which, and says so. `unsafe_conflict` means the
+required gap, or a medicine is awaiting confirmation — the client shows which, and says so. `unsafe_conflict` means the
 verifier disagreed with the builder; the schedule must not be presented as safe.
 
 ---

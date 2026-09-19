@@ -767,6 +767,32 @@ def _feasibility_conflict(
     return None
 
 
+# Values of `resolution_confidence` (registry lookup) that are too weak to put a
+# reminder in front of a caregiver without a human saying "yes, that is the
+# medicine". `confidence` is the reader's own honest confidence in the label.
+LOW_CONFIDENCE_VALUES = frozenset({"low", "none", "unknown"})
+
+
+def _needs_identity_confirmation(med: dict) -> str:
+    """Why this medicine may not be scheduled yet, or "" when it may.
+
+    A low-confidence reading is a guess about which drug this is. Scheduling a
+    guess produces a reminder for a medicine nobody verified, so the medicine
+    waits outside the timetable until a person confirms its identity.
+
+    `identity_confirmed` is a human act recorded against the record; it is never
+    inferred from the medicine itself, and never from the fact that a screen was
+    dismissed.
+    """
+    if med.get("identity_confirmed") is True:
+        return ""
+    if str(med.get("resolution_confidence") or "").strip().lower() in LOW_CONFIDENCE_VALUES:
+        return "ingredients_not_identified"
+    if str(med.get("confidence") or "").strip().lower() == "low":
+        return "reading_not_confirmed"
+    return ""
+
+
 def build_schedule(
     medications: list[dict],
     alerts: list[dict],
@@ -796,6 +822,28 @@ def build_schedule(
     ]
     # Deterministic order: stable across runs for the same input.
     active.sort(key=lambda m: (m.get("id") or m.get("brand_name") or ""))
+
+    # S-7: a medicine we are not sure we read correctly never enters the
+    # timetable. It is listed separately, in plain words, for a person to check.
+    awaiting_confirmation: list[dict] = []
+    schedulable: list[dict] = []
+    for med in active:
+        reason = _needs_identity_confirmation(med)
+        if reason:
+            awaiting_confirmation.append({
+                "med_id": med.get("id", ""),
+                "med_name": med.get("brand_name", ""),
+                "reason": reason,
+                "note": (
+                    "We are not sure we read this medicine correctly, so it has no "
+                    "reminder times yet. Please check it."
+                ),
+            })
+        else:
+            schedulable.append(med)
+    all_active = active
+    active = schedulable
+
 
     gap_pairs: dict[frozenset, float] = {}
     # Pairs that must never be co-administered in the same slot: duplicates
@@ -911,7 +959,10 @@ def build_schedule(
 
     # Any medicine whose ingredients are unknown can never be declared safe in a
     # slot, so it is placed last and flagged rather than silently co-located.
-    unknown = [m for m in active if m.get("resolution_confidence") == "low"]
+    unknown = [
+        m for m in all_active
+        if str(m.get("resolution_confidence") or "").strip().lower() in LOW_CONFIDENCE_VALUES
+    ]
     for item in dose_times:
         for entry in item["medications"]:
             if any(u.get("id") == entry["med_id"] for u in unknown):
@@ -943,7 +994,7 @@ def build_schedule(
         # "verified"       - every prescribed dose placed, no constraint violated
         # "partial"        - some doses could not be placed safely (see conflicts)
         # "unsafe_conflict"- the independent verifier found a violated constraint
-        "schedule_status": "partial" if conflicts else "verified",
+        "schedule_status": "partial" if (conflicts or awaiting_confirmation) else "verified",
         "generated_by": "deterministic_solver",
         "knowledge_base": registry.versions,
         "review_status": registry.review_status,
@@ -958,6 +1009,9 @@ def build_schedule(
             }
             for m in unknown
         ],
+        # Medicines held out of the timetable until a person confirms what they
+        # are. Never a percentage: "not sure, please check".
+        "awaiting_confirmation": awaiting_confirmation,
     }
     verification = verify_schedule(schedule, patient_alerts)
     schedule["verification"] = verification

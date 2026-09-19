@@ -686,6 +686,32 @@ async def edit_medication(
     return {"updated": med_id}
 
 
+@app.post("/api/v1/profiles/{profile_id}/medications/{med_id}/confirm-identity")
+async def confirm_medication_identity(
+    profile_id: str,
+    med_id: str,
+    user_id: str = Depends(verify_firebase_token),
+):
+    """Record that a person checked this medicine and says the identity is right.
+
+    A medicine read with low confidence is kept out of the timetable until this
+    is recorded. The confirmation is evidence about the *human act* only - it is
+    stored against the record with who and when, and never treated as evidence
+    about the drug itself.
+    """
+    _guard(user_id, "confirm")
+    await firestore_service.update_medication(user_id, profile_id, med_id, {
+        "identity_confirmed": True,
+        "identity_confirmed_at": _now(),
+        "identity_confirmed_by": user_id,
+    })
+    audit_service.record(
+        user_id, audit_service.EVENT_MEDICATION_UPDATED, profile_id=profile_id,
+        subject_id=med_id, detail={"action": "identity_confirmed"},
+    )
+    return {"confirmed": med_id}
+
+
 @app.delete("/api/v1/profiles/{profile_id}/medications/{med_id}")
 async def remove_medication(
     profile_id: str,
