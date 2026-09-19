@@ -32,9 +32,11 @@ invalidates stale clinical answers.
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -325,6 +327,7 @@ class MedicationRegistry:
                 self._ingredient_rule_index.setdefault(iid, []).append(adv)
 
         self._load_brands()
+        self._build_mechanism_groups()
 
         logger.info(
             "Knowledge base loaded: %d ingredients, %d interaction rules, %d advisories, "
@@ -333,6 +336,81 @@ class MedicationRegistry:
             sum(len(v) for v in self.brand_index.values()),
             self.versions["ingredients"], self.versions["interactions"], self.review_status,
         )
+
+    # ── Mechanism-group index (S-4) ──────────────────────────────────────────
+    # Union-find over the `groups` declared in each interaction rule. Two
+    # ingredients placed in the SAME group of any rule share a mechanism of
+    # action (e.g. ibuprofen and diclofenac are both NSAIDs). The interaction
+    # path only fires across two DIFFERENT groups, so without this index the
+    # runtime never tells a patient that two different-ingredient products are
+    # the same type of medicine — the most easily missed duplication. Severity
+    # stays `moderate` until a clinician confirms the group boundaries.
+
+    def _build_mechanism_groups(self) -> None:
+        parent: dict[str, str] = {}
+
+        def find(x: str) -> str:
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                return
+            # Deterministic root keeps ids stable across runs.
+            root, other = (ra, rb) if ra <= rb else (rb, ra)
+            parent[other] = root
+
+        # (group members, source label, rule id) for every group with >=2 members.
+        raw: list[tuple[list[str], str, str]] = []
+        for rule in self.rules:
+            src = rule.get("_source_label") or rule.get("source", "")
+            for group in rule["_groups"]:
+                if len(group) < 2:
+                    continue
+                raw.append((list(group), src, rule["id"]))
+                for a, b in itertools.combinations(sorted(group), 2):
+                    union(a, b)
+
+        sources: dict[str, set[str]] = defaultdict(set)
+        rule_ids: dict[str, list[str]] = defaultdict(list)
+        members: dict[str, set[str]] = defaultdict(set)
+        for group, src, rid in raw:
+            root = find(group[0])
+            sources[root].add(src)
+            rule_ids[root].append(rid)
+            for iid in group:
+                members[find(iid)].add(iid)
+
+        self._mech_parent = parent
+        self._mech_sources = sources
+        self._mech_rule_ids = rule_ids
+        self._mech_members = members
+
+    def _find_mech(self, x: str) -> str:
+        parent = self._mech_parent
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def mechanism_group_of(self, ingredient_id: str) -> str | None:
+        """Cluster root for an ingredient that belongs to a multi-member
+        mechanism group, or ``None`` when the ingredient is not in any group of
+        size >= 2 (so it can never be part of a duplicate-therapy finding)."""
+        if ingredient_id not in self._mech_parent:
+            return None
+        return self._find_mech(ingredient_id)
+
+    def mechanism_cluster_info(self, root: str) -> dict:
+        return {
+            "sources": sorted(self._mech_sources.get(root, set())),
+            "rule_ids": sorted(set(self._mech_rule_ids.get(root, []))),
+            "ingredients": sorted(self._mech_members.get(root, set())),
+        }
 
     def _require_ingredient(self, ingredient_id: str, owner: str) -> str:
         if ingredient_id not in self.ingredients:

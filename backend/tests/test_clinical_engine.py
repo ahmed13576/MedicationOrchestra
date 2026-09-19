@@ -73,11 +73,19 @@ def test_two_medicines_from_the_same_group_do_not_trigger_a_cross_group_rule(reg
 
 def test_aspirin_plus_another_nsaid_does_alert(registry):
     """The other side of the same coin: two different NSAIDs DO interact when one
-    of them is aspirin, because it loses its antiplatelet effect."""
+    of them is aspirin, because it loses its antiplatelet effect. S-4 also adds a
+    duplicate-therapy finding (two NSAIDs share a mechanism group) alongside the
+    interaction alert — both facts are true and both reach the patient."""
     meds = [med("m1", "Ecosprin"), med("m2", "Brufen")]
     alerts, _ = check_patient(meds, "p1", registry=registry)
-    assert [a.rule_id for a in alerts] == ["ddi_aspirin_nsaid"]
-    assert alerts[0].severity == "moderate"
+    rule_ids = [a.rule_id for a in alerts]
+    assert "ddi_aspirin_nsaid" in rule_ids
+    interaction = next(a for a in alerts if a.rule_id == "ddi_aspirin_nsaid")
+    assert interaction.severity == "moderate"
+    # Two different NSAIDs are also duplicate therapy (same mechanism group).
+    therapy = [a for a in alerts if a.kind == "duplicate_therapy"]
+    assert len(therapy) == 1, rule_ids
+    assert therapy[0].severity == "moderate"
 
 
 def test_every_rule_declares_disjoint_groups(registry):
@@ -608,3 +616,67 @@ def test_truncation_keeps_severity_order(registry, monkeypatch):
     alerts, _ = check_patient(meds, "p1", registry=registry)
     ranks = [a.severity_rank for a in alerts]
     assert ranks == sorted(ranks), "survivors are not severity-ordered"
+
+
+# ── Mechanism-group duplicate therapy (S-4) ──────────────────────────────────
+
+def test_two_different_drugs_in_one_mechanism_group_alert(registry):
+    """Brufen (ibuprofen) and Voveran (diclofenac) are different ingredients
+    with the same NSAID mechanism. Exact-ingredient matching misses this; the
+    interaction rules' declared groups catch it at runtime."""
+    meds = [med("m1", "Brufen"), med("m2", "Voveran")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    therapy = [a for a in alerts if a.kind == "duplicate_therapy"]
+    assert len(therapy) == 1, [
+        (a.kind, a.rule_id) for a in alerts
+    ]
+    alert = therapy[0]
+    assert alert.severity == "moderate"
+    assert set(alert.ingredients) == {"ibuprofen", "diclofenac"}
+    assert set(alert.medications) == {"Brufen", "Voveran"}
+    # The pair is a no-coallocate pair: two same-mechanism products never share
+    # a dose slot, exactly like two products sharing an ingredient.
+    assert alert.conflicting_pairs
+    pair = alert.conflicting_pairs[0]
+    assert set(pair["med_ids"]) == {"m1", "m2"}
+    assert set(pair["ingredients"]) == {"ibuprofen", "diclofenac"}
+
+
+def test_a_group_alert_cites_its_source(registry):
+    """A duplicate-therapy finding must be auditable to a source, like every
+    other clinical claim. The citation names the interaction rule(s) whose
+    mechanism-group definition placed the two ingredients together."""
+    meds = [med("m1", "Brufen"), med("m2", "Voveran")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    alert = next(a for a in alerts if a.kind == "duplicate_therapy")
+    assert alert.source, "duplicate_therapy alert has no source"
+    assert alert.citation, "duplicate_therapy alert has no citation"
+    assert "rule" in alert.citation.lower()
+    assert alert.rule_id and alert.rule_id.startswith("duptherapy_")
+
+
+def test_duplicate_therapy_does_not_double_alert_an_exact_duplicate(registry):
+    """Brufen + Combiflam both contain ibuprofen, so the exact-ingredient
+    check already covers them. A duplicate_therapy alert on the same pair would
+    be a double alert; the mechanism-group check skips a cluster whose products
+    all map to a single ingredient."""
+    meds = [med("m1", "Brufen"), med("m2", "Combiflam")]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    assert not any(a.kind == "duplicate_therapy" for a in alerts), [
+        (a.kind, a.rule_id) for a in alerts
+    ]
+
+
+def test_duplicate_therapy_pair_is_never_co_located(registry):
+    """Two same-mechanism products must never land in the same dose slot; the
+    verifier independently re-checks this, so a tampered schedule that
+    co-locates them is rejected."""
+    meds = [med("m1", "Brufen", timing=["08:00"]), med("m2", "Voveran", timing=["08:00"])]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    assert schedule["schedule_status"] != "unsafe_conflict"
+    # No dose slot holds both Brufen and Voveran.
+    for dt in schedule.get("dose_times", []):
+        ids = {m.get("med_id") for m in dt.get("medications", [])}
+        assert not {"m1", "m2"} <= ids, f"two NSAIDs co-located at {dt['time']}"
+

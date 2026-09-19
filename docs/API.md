@@ -111,7 +111,7 @@ frequency_english, timing, instruction, notes, status`. Delete is a soft delete
 {
   "interactions": [ {
       "id": "dose_ceiling:dup_paracetamol:<profile>:paracetamol",
-      "kind": "dose_ceiling",              // interaction | duplicate_ingredient | dose_ceiling | advisory
+      "kind": "dose_ceiling",              // interaction | duplicate_ingredient | dose_ceiling | duplicate_therapy | advisory
       "severity": "major",                  // contraindicated | major | moderate | minor | info
       "title": "Same medicine in 2 products: Paracetamol",
       "detail": "2 of these products contain Paracetamol, so the doses add up:

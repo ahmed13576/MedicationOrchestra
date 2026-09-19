@@ -63,7 +63,7 @@ class AlertList(list):
 @dataclass
 class Alert:
     """A single, independently auditable finding."""
-    kind: str                      # "interaction" | "duplicate_ingredient" | "dose_ceiling" | "advisory"
+    kind: str                      # "interaction" | "duplicate_ingredient" | "dose_ceiling" | "duplicate_therapy" | "advisory"
     severity: str                  # contraindicated | major | moderate | minor | info
     title: str
     detail: str
@@ -201,6 +201,11 @@ def check_patient(
 
     # -- 2. duplicate active ingredient across different products -------------
     alerts.extend(_duplicate_alerts(resolved, profile_id, patient_name, registry))
+
+    # -- 2b. duplicate therapy across the same mechanism group ---------------
+    # Different ingredients (ibuprofen + diclofenac) that the exact-ingredient
+    # check cannot see; uses the interaction rules' declared groups at runtime.
+    alerts.extend(_duplicate_therapy_alerts(resolved, profile_id, patient_name, registry))
 
     # -- 3. single-ingredient advisories --------------------------------------
     alerts.extend(_advisory_alerts(resolved, profile_id, patient_name, registry))
@@ -470,6 +475,101 @@ def _duplicate_alerts(
     return alerts
 
 
+def _duplicate_therapy_alerts(
+    resolved: list[tuple[dict, ResolvedMedication]],
+    profile_id: str,
+    patient_name: str,
+    registry: MedicationRegistry,
+) -> list[Alert]:
+    """Two different products whose active ingredients share a mechanism group.
+
+    Exact-ingredient matching (``_duplicate_alerts``) catches two brands of
+    ibuprofen; it misses ibuprofen + diclofenac, which are different ingredients
+    with the same NSAID mechanism. The interaction rules already declare these
+    groups (``rule["groups"]``); this check uses them at runtime so a
+    duplicate-therapy finding reaches the patient.
+
+    Severity is ``moderate`` — the groups are coarse and a clinician (B-1) has
+    not reviewed every boundary, so this never blocks a schedule on its own.
+    It works on resolved ingredient ids only, never on brand-name strings, so
+    it reintroduces no fuzzy matching.
+    """
+    alerts: list[Alert] = []
+
+    # cluster root -> med_id -> (med entry, ingredient ids in this cluster)
+    by_cluster: dict[str, dict[str, tuple[dict, set[str]]]] = {}
+    for med, res in resolved:
+        med_id = med.get("id") or med.get("brand_name", "")
+        for iid in res.ingredient_ids:
+            root = registry.mechanism_group_of(iid)
+            if root is None:
+                continue
+            bucket = by_cluster.setdefault(root, {})
+            entry = bucket.setdefault(med_id, (med, set()))
+            entry[1].add(iid)
+
+    for root, products in by_cluster.items():
+        if len(products) < 2:
+            continue  # one product -> nothing to duplicate against
+        ingredients_here = {iid for _, ings in products.values() for iid in ings}
+        if len(ingredients_here) < 2:
+            # Every product maps to the same single ingredient: that is the
+            # exact-duplicate case already covered by _duplicate_alerts, so
+            # reporting it again here would double-alert the same fact.
+            continue
+
+        info = registry.mechanism_cluster_info(root)
+        ordered = sorted(products.values(), key=lambda kv: (kv[0].get("brand_name") or "", kv[0].get("id") or ""))
+        med_entries = [m for m, _ in ordered]
+        med_ids = [m.get("id", "") for m, _ in ordered]
+        brand_names = sorted({m.get("brand_name", "") for m in med_entries})
+        ingredient_names = sorted(
+            registry.ingredients[iid]["name"] for iid in ingredients_here
+        )
+
+        pairs = [
+            {
+                "med_ids": [a[0].get("id", ""), b[0].get("id", "")],
+                "ingredients": sorted(a[1] | b[1]),
+            }
+            for a, b in itertools.combinations(ordered, 2)
+        ]
+
+        sources = info["sources"] or ["Interaction knowledge base"]
+        rule_clause = ", ".join(info["rule_ids"]) or "(no rule id)"
+        alerts.append(Alert(
+            kind="duplicate_therapy",
+            severity="moderate",
+            title=(
+                f"Same type of medicine in {len(brand_names)} products: "
+                + " + ".join(ingredient_names)
+            ),
+            detail=(
+                f"{len(brand_names)} products contain different ingredients that "
+                f"work the same way ({', '.join(ingredient_names)}): "
+                f"{', '.join(brand_names)}. Taking two medicines of the same "
+                f"type at the same time repeats the effect and is usually "
+                f"unintentional. Mechanism group defined by interaction "
+                f"rule(s): {rule_clause}."
+            ),
+            action=(
+                "Check with a pharmacist or prescriber whether both are still "
+                "needed. Do not stop or change either on your own."
+            ),
+            source="; ".join(sources),
+            citation=f"Mechanism-group definition in interaction knowledge base "
+                     f"(rules: {rule_clause})",
+            rule_id=f"duptherapy_{root}",
+            profile_id=profile_id,
+            patient_name=patient_name,
+            medications=brand_names,
+            ingredients=sorted(ingredients_here),
+            med_ids=med_ids,
+            conflicting_pairs=pairs,
+        ))
+    return alerts
+
+
 def _advisory_alerts(
     resolved: list[tuple[dict, ResolvedMedication]],
     profile_id: str,
@@ -717,7 +817,7 @@ def build_schedule(
             if len(ids) < 2 or ids[0] == ids[1]:
                 continue
             key = frozenset(ids)
-            if alert.get("kind") in ("duplicate_ingredient", "dose_ceiling"):
+            if alert.get("kind") in ("duplicate_ingredient", "dose_ceiling", "duplicate_therapy"):
                 no_coallocate_pairs.add(key)
             elif alert.get("kind") == "interaction":
                 # Two interacting medicines are never co-administered in the same
@@ -909,6 +1009,11 @@ def _move_reason(
                     " because it contains the same active ingredient as another medicine "
                     "you take, so the two must not be taken at the same time"
                 )
+            if alert.get("kind") == "duplicate_therapy":
+                return (
+                    " because it works the same way as another medicine you take "
+                    "(same mechanism group), so the two must not be taken at the same time"
+                )
             if alert.get("kind") == "interaction" and float(alert.get("time_gap_hours") or 0) > 0:
                 gap = float(alert["time_gap_hours"])
                 return f" to keep at least {gap:g} hours from another medicine ({', '.join(others[:2])})"
@@ -1074,7 +1179,7 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
             {"med_ids": p} for p in itertools.combinations(ids, 2)
         ]
 
-        if kind in ("duplicate_ingredient", "dose_ceiling"):
+        if kind in ("duplicate_ingredient", "dose_ceiling", "duplicate_therapy"):
             for pair in pairs:
                 pair_ids = pair.get("med_ids") or []
                 if len(pair_ids) < 2:
@@ -1082,12 +1187,24 @@ def verify_schedule(schedule: dict, alerts: list[dict]) -> dict:
                 a, b = pair_ids[0], pair_ids[1]
                 shared = [t for t, meds in slot_ids.items() if a in meds and b in meds]
                 if shared:
+                    if kind == "duplicate_therapy":
+                        reason = "duplicate_therapy_same_slot"
+                        message = (
+                            f"Two products with the same mechanism are both "
+                            f"scheduled at {shared}"
+                        )
+                    else:
+                        reason = "duplicate_ingredient_same_slot"
+                        message = (
+                            f"Two products sharing an ingredient are both "
+                            f"scheduled at {shared}"
+                        )
                     violations.append({
                         "alert_id": alert.get("id", ""),
                         "kind": kind,
-                        "reason": "duplicate_ingredient_same_slot",
+                        "reason": reason,
                         "slots": shared,
-                        "message": f"Two products sharing an ingredient are both scheduled at {shared}",
+                        "message": message,
                     })
         elif kind == "interaction":
             for pair in pairs:
