@@ -82,7 +82,21 @@ decision-maker, and were the source of the "no interactions found" failure.
 
 ## Running it locally
 
-### Backend
+### The one-command demo (no Google Cloud account needed)
+```bash
+cd backend && python3 dev_server.py         # http://localhost:8080
+```
+It replaces Firestore with an in-memory store, stubs auth and FCM, and seeds a
+demo household: an older patient on warfarin, Brufen, Dolo 650, Combiflam,
+Ecosprin and Clopilet, plus one illegible entry so the coverage ledger has
+something to report. The app itself is the real one — same engine, same rules.
+```bash
+curl -s localhost:8080/api/v1/interactions -H 'Authorization: Bearer demo'
+curl -s -X POST localhost:8080/api/v1/schedule/generate -H 'Authorization: Bearer demo'
+```
+It prints a warning banner and binds to all interfaces: never expose it.
+
+### Backend against real Google Cloud
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
@@ -96,7 +110,7 @@ Health: `curl localhost:8080/health` · readiness: `curl localhost:8080/readyz`
 
 ### Tests (no credentials, no network — the cloud clients are stubbed)
 ```bash
-cd backend && python -m pytest tests/ -q          # 127 tests
+cd backend && python -m pytest tests/ -q          # 129 tests
 python scripts/safety_invariant_audit.py          # 43 checks, exits 0 only if every invariant holds
 ```
 
@@ -172,15 +186,19 @@ backend/
 ├── knowledge/               # ingredients.json, interactions.json, brand_mapping.csv
 ├── services/                # registry, engine, model surfaces, auth, audit, limits, images
 ├── agents/agent_security.py # input sanitisation + output validation
-└── tests/                   # 127 tests + the in-memory Firestore fake
+├── dev_server.py            # run the real app locally with no credentials
+└── tests/                   # 129 tests, the in-memory Firestore fake, strip fixtures
 medication_orchestra/        # Flutter client
 scripts/safety_invariant_audit.py
-docs/                        # API, knowledge sources, security & privacy, review, product plan
+deploy.ps1                   # Cloud Run deploy, smoke-tested
+monitoring_setup.ps1         # dashboard + 5xx log metric
+docs/                        # API, knowledge sources, security & privacy, history, review, plan
 ```
 
 ## Documentation
 
 * [docs/API.md](docs/API.md) — the endpoint contract
+* [docs/HISTORY.md](docs/HISTORY.md) — what was deleted from this repository, and why
 * [docs/KNOWLEDGE_SOURCES.md](docs/KNOWLEDGE_SOURCES.md) — where every clinical claim comes from, and its licence
 * [docs/SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md) — auth, tenancy, consent, audit, DPDP status
 * [docs/ADVERSARIAL_REVIEW.md](docs/ADVERSARIAL_REVIEW.md) — the review that produced this work, with fix status

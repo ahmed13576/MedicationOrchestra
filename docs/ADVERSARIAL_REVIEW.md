@@ -25,7 +25,7 @@ because it is fixable in days and it is the difference between "demo" and "produ
 ## Fix status (updated after the remediation pass)
 
 The audit command in §0 now exits **0**: `43/43` checks hold, and the test-suite
-is `127 passed`. The table below is the honest ledger of what changed and what
+is `129 passed`. The table below is the honest ledger of what changed and what
 still has not.
 
 | # | Finding | Status | Evidence |
@@ -40,7 +40,7 @@ still has not.
 | F-08 | Security and abuse posture | **Mostly fixed** | MIME sniffing + size/pixel caps + EXIF stripping; sanitisation that keeps legitimate names; per-user rate limits; explicit CORS; `python-multipart` 0.0.32 (CVE-2024-53981); non-root container; no secrets in the image. Remaining: no pen-test; rate limits are in-process. |
 | F-09 | Regulatory and privacy posture empty | **Partly fixed** | versioned consent + `consent_history`, audit trail on every health-data access, export and confirmed deletion, rules that deny client writes. Remaining: published privacy notice, grievance officer, breach runbook, consent-manager integration — listed in `docs/SECURITY_AND_PRIVACY.md` §8. |
 | F-10 | Cache correctness | **Partly fixed** | Firestore no longer infers freshness from a possibly-null timestamp: `compute_invalidation_key()` combines the change timestamp with the knowledge-base versions, so correcting a rule invalidates every cached answer. Remaining: the client's on-device cache is still timestamp-based. |
-| F-11 | No tests, no CI, no evaluation harness | **Fixed** | 127 tests (in-memory Firestore, no credentials), 43 executed invariant checks, and `.github/workflows/ci.yml` running ruff, pip-audit, the invariant audit, pytest, a knowledge-base integrity check and a container build. Remaining: no evaluation corpus for extraction accuracy. |
+| F-11 | No tests, no CI, no evaluation harness | **Fixed** | 129 tests (in-memory Firestore, no credentials), 43 executed invariant checks, and `.github/workflows/ci.yml` running ruff, pip-audit, the invariant audit, pytest, a knowledge-base integrity check and a container build. Remaining: no evaluation corpus for extraction accuracy. |
 | F-12 | Dependency drift, dead weight, one live CVE | **Mostly fixed** | every pin exact and current (fastapi 0.141.1, pillow 12.3.0, firebase-admin 7.6.0, python-multipart 0.0.32); `google-cloud-aiplatform` removed; `Pillow` is now genuinely used. Remaining: `flutter_local_notifications` 17.x stayed put because the bump cannot be verified without a device build. |
 | F-13 | Cost and latency structurally bad | **Partly fixed** | the decision path makes zero model calls; the vision path is rate-limited; the schedule is computed locally in milliseconds; the DDI corpus no longer needs indexing. Remaining: no load test, no per-household COGS telemetry. |
 | F-14 | Delivery gaps between pitch and app | **Fixed** | `README.md` rewritten to describe the system that exists; the ADK agents that described non-existent orchestration were deleted; the manifest no longer advertises ADK. |

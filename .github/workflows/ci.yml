@@ -84,6 +84,33 @@ jobs:
               if len(set(rule["ingredients"])) < 2:
                   errors.append(f"{rule['id']}: fewer than two ingredients")
 
+          # Every rule must declare at least two mechanism groups, they must be
+          # disjoint, and they must cover the rule's ingredient list. A rule that
+          # fails this either never fires or fires on the wrong patients - the
+          # defect that made the engine report an "SSRI + NSAID" alert for a
+          # patient taking two painkillers.
+          for rule in rules:
+              groups = rule.get("groups") or []
+              if len(groups) < 2:
+                  errors.append(f"{rule['id']}: needs at least two mechanism groups")
+                  continue
+              seen = set()
+              for group in groups:
+                  overlap = seen & set(group)
+                  if overlap:
+                      errors.append(f"{rule['id']}: {sorted(overlap)} appears in two groups")
+                  seen |= set(group)
+              for ingredient in rule["ingredients"]:
+                  if ingredient not in seen:
+                      errors.append(f"{rule['id']}: {ingredient} is in no group")
+
+          # Where a rule names a specific interval in its cited advice, it must
+          # declare it, so the solver enforces the citation rather than a default.
+          for rule in rules:
+              gap = rule.get("min_gap_hours")
+              if gap is not None and (not isinstance(gap, (int, float)) or gap < 0):
+                  errors.append(f"{rule['id']}: min_gap_hours must be a non-negative number")
+
           # Nothing may be imported from a source whose licence forbids
           # commercial use (the previous corpus derived from DrugBank).
           blob = (knowledge / "interactions.json").read_text().lower() + \
@@ -127,6 +154,25 @@ jobs:
             echo "::error::a secret file was baked into the image"
             exit 1
           fi
+
+      - name: Deployment scripts reference files that exist
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          errors = []
+          for script in ("deploy.ps1", "monitoring_setup.ps1"):
+              text = pathlib.Path(script).read_text()
+              for name in re.findall(r'"(monitoring_[a-z_]*\.json)"', text):
+                  if not pathlib.Path(name).exists():
+                      errors.append(f"{script} refers to {name}, which is not in the repository")
+              if re.search(r'project-[0-9a-f]{8}-', text):
+                  errors.append(f"{script} contains a hardcoded project id")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print("deployment scripts reference existing files and no hardcoded project")
+          PY
 
       - name: The service must refuse to start without a knowledge base
         run: |
