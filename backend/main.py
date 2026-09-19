@@ -184,6 +184,13 @@ class ProfilePayload(BaseModel):
     language: str = Field(default="en", max_length=12)
 
 
+class AllergyPayload(BaseModel):
+    """An allergy as the household recorded it - a belief, not a diagnosis."""
+    label: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=300)
+    ingredient_id: str = Field(default="", max_length=80)
+
+
 class MedicationPayload(BaseModel):
     profile_id: str = Field(min_length=1, max_length=64)
     brand_name: str = Field(min_length=1, max_length=120)
@@ -367,6 +374,31 @@ def _profile_names(user_id: str) -> dict[str, str]:
         return {}
 
 
+def _allergies_ref(user_id: str, profile_id: str):
+    return _profile_ref(user_id, profile_id).collection("allergies")
+
+
+def _profile_allergies(user_id: str, profile_id: str | None = None) -> dict[str, list[dict]]:
+    """Recorded allergies per profile, for the deterministic check.
+
+    A read failure returns nothing recorded, and the engine then reports the
+    check as incomplete - it never means "no allergies".
+    """
+    out: dict[str, list[dict]] = {}
+    try:
+        ids = [profile_id] if profile_id else list(_profile_names(user_id))
+        for pid in ids:
+            entries = [
+                {"id": doc.id, **(doc.to_dict() or {})}
+                for doc in _allergies_ref(user_id, pid).stream()
+            ]
+            if entries:
+                out[pid] = entries
+    except Exception:
+        return out
+    return out
+
+
 def _acknowledged_ids(user_id: str) -> set[str]:
     """Alert ids the user has already dismissed.
 
@@ -403,8 +435,10 @@ async def _run_check(
                 "medications_unchecked": 0,
                 "coverage_percent": 0.0,
                 "is_complete": False,
+                "unmatched_allergies": [],
                 "patients": [],
             },
+            "unmatched_allergies": [],
             "critical_count": 0,
             "knowledge_base": REGISTRY.describe(),
             "review_status": REGISTRY.review_status,
@@ -412,7 +446,9 @@ async def _run_check(
             "message": "No medications found. Scan or add your medicines first.",
         }
 
-    result = check_household(meds, names, REGISTRY)
+    result = check_household(
+        meds, names, REGISTRY, _profile_allergies(user_id, profile_id)
+    )
 
     acknowledged = _acknowledged_ids(user_id)
     for alert in result["alerts"]:
@@ -686,6 +722,55 @@ async def remove_profile(
     return {"deleted": profile_id}
 
 
+@app.get("/api/v1/profiles/{profile_id}/allergies")
+async def list_allergies(
+    profile_id: str,
+    user_id: str = Depends(verify_firebase_token),
+):
+    entries = _profile_allergies(user_id, profile_id).get(profile_id, [])
+    return {"allergies": entries, "count": len(entries)}
+
+
+@app.post("/api/v1/profiles/{profile_id}/allergies")
+async def record_allergy(
+    profile_id: str,
+    payload: AllergyPayload,
+    user_id: str = Depends(verify_firebase_token),
+):
+    """Record an allergy against a profile.
+
+    Stored with who recorded it and when, because it is the household's own
+    record. The engine phrases every alert as "you recorded", never as fact.
+    """
+    if not _profile_ref(user_id, profile_id).get().exists:
+        raise HTTPException(404, "Profile not found")
+    allergy_id = str(uuid.uuid4())
+    entry = {
+        "id": allergy_id,
+        "label": sanitize_text_input(payload.label, max_length=120),
+        "note": sanitize_text_input(payload.note, max_length=300),
+        "ingredient_id": sanitize_text_input(payload.ingredient_id, max_length=80).lower(),
+        "recorded_by": user_id,
+        "recorded_at": _now().isoformat(),
+    }
+    _allergies_ref(user_id, profile_id).document(allergy_id).set(entry)
+    audit_service.record(user_id, audit_service.EVENT_MEDICATION_UPDATED,
+                         profile_id=profile_id, detail={"action": "allergy_recorded"})
+    return {"allergy": entry}
+
+
+@app.delete("/api/v1/profiles/{profile_id}/allergies/{allergy_id}")
+async def remove_allergy(
+    profile_id: str,
+    allergy_id: str,
+    user_id: str = Depends(verify_firebase_token),
+):
+    _allergies_ref(user_id, profile_id).document(allergy_id).delete()
+    audit_service.record(user_id, audit_service.EVENT_DELETION, profile_id=profile_id,
+                         detail={"action": "allergy_removed"})
+    return {"deleted": allergy_id}
+
+
 @app.get("/api/v1/profiles/{profile_id}/medications")
 async def list_medications(
     profile_id: str,
@@ -799,6 +884,7 @@ async def get_interactions(
         "count": len(result["alerts"]),
         "critical_count": result["critical_count"],
         "unchecked": result["unchecked"],
+        "unmatched_allergies": result.get("unmatched_allergies", []),
         "coverage": result["coverage"],
         "knowledge_base": result["knowledge_base"],
         "review_status": result["review_status"],

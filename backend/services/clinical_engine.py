@@ -56,6 +56,9 @@ class AlertList(list):
     """
 
     truncated_count: int = 0
+    #: Allergy entries whose name could not be matched to a known ingredient.
+    #: Carried here so the caller can surface them instead of dropping them.
+    unmatched_allergies: tuple = ()
 
 
 # ── Alert model ───────────────────────────────────────────────────────────────
@@ -163,6 +166,7 @@ def check_patient(
     profile_id: str,
     patient_name: str = "",
     registry: MedicationRegistry | None = None,
+    allergies: list[dict] | None = None,
 ) -> tuple[list[Alert], list[UncheckedMedication]]:
     """Run every deterministic check for ONE patient's medication list."""
     registry = registry or get_registry()
@@ -210,6 +214,12 @@ def check_patient(
     # -- 3. single-ingredient advisories --------------------------------------
     alerts.extend(_advisory_alerts(resolved, profile_id, patient_name, registry))
 
+    # -- 4. recorded allergies -------------------------------------------------
+    allergy_alerts, unmatched_allergies = _allergy_alerts(
+        resolved, profile_id, patient_name, registry, allergies or []
+    )
+    alerts.extend(allergy_alerts)
+
     alerts.sort(key=lambda a: (a.severity_rank, a.title))
     # Never silently drop a critical/major finding: a flat cap that hid a
     # contraindication would be the worst possible defect. Keep every
@@ -223,7 +233,90 @@ def check_patient(
     kept.sort(key=lambda a: (a.severity_rank, a.title))
     result = AlertList(kept)
     result.truncated_count = len(alerts) - len(kept)
+    result.unmatched_allergies = unmatched_allergies
     return result, unchecked
+
+
+def _allergy_alerts(
+    resolved: list[tuple[dict, ResolvedMedication]],
+    profile_id: str,
+    patient_name: str,
+    registry: MedicationRegistry,
+    allergies: list[dict],
+) -> tuple[list[Alert], list[dict]]:
+    """Alerts for medicines that contain something the household recorded as an allergy.
+
+    The allergy is the household's own record, not a diagnosis, so every phrase
+    says "you recorded". A hit is contraindicated with an avoid action - never a
+    soft warning - and the scheduler refuses to place the medicine. An allergy
+    name that cannot be matched to a known ingredient is returned separately and
+    must be shown: silence would read as "no allergy problem".
+    """
+    alerts: list[Alert] = []
+    unmatched: list[dict] = []
+
+    for entry in allergies:
+        if not isinstance(entry, dict):
+            continue
+        label = str(entry.get("label") or entry.get("name") or "").strip()
+        if not label:
+            continue
+        recorded_by = str(entry.get("recorded_by") or "")
+        recorded_at = str(entry.get("recorded_at") or "")
+        declared = str(entry.get("ingredient_id") or "").strip().lower()
+        ingredient_ids = [declared] if declared else []
+        if not ingredient_ids:
+            resolution = registry.resolve_medication(label, "")
+            ingredient_ids = [i.ingredient_id for i in resolution.ingredients]
+        if not ingredient_ids:
+            unmatched.append({
+                "profile_id": profile_id,
+                "label": label,
+                "reason": "allergy_not_matched",
+                "note": (
+                    f"You recorded an allergy to \"{label}\". We could not match that "
+                    "name to a medicine we know, so your medicines were NOT checked "
+                    "against it."
+                ),
+                "recorded_by": recorded_by,
+                "recorded_at": recorded_at,
+            })
+            continue
+
+        hits = [
+            (med, res) for med, res in resolved
+            if any(i.ingredient_id in ingredient_ids for i in res.ingredients)
+        ]
+        if not hits:
+            continue
+        alerts.append(Alert(
+            kind="allergy",
+            severity="contraindicated",
+            title=f"You recorded an allergy to {label}",
+            detail=(
+                f"You recorded an allergy to {label}. "
+                + ", ".join(m.get("brand_name", "") for m, _ in hits)
+                + (" contains it." if len(hits) == 1 else " contain it.")
+            ),
+            action=(
+                "Avoid this medicine and speak to the prescriber or pharmacist "
+                "before it is taken."
+            ),
+            source="Recorded by your household",
+            citation=(
+                f"Allergy recorded{' by ' + recorded_by if recorded_by else ''}"
+                f"{' on ' + recorded_at if recorded_at else ''}. This is your own "
+                "record, not a diagnosis."
+            ),
+            rule_id=f"allergy_{'+'.join(sorted(ingredient_ids))}",
+            profile_id=profile_id,
+            patient_name=patient_name,
+            medications=[m.get("brand_name", "") for m, _ in hits],
+            ingredients=sorted(ingredient_ids),
+            med_ids=[m.get("id", "") for m, _ in hits],
+        ))
+
+    return alerts, unmatched
 
 
 def _interaction_alerts(
@@ -608,6 +701,7 @@ def check_household(
     medications: list[dict],
     profile_names: dict[str, str] | None = None,
     registry: MedicationRegistry | None = None,
+    profile_allergies: dict[str, list[dict]] | None = None,
 ) -> dict:
     """Check every patient independently and account for coverage.
 
@@ -618,15 +712,21 @@ def check_household(
     profile_names = profile_names or {}
     grouped = group_by_patient(medications)
 
+    profile_allergies = profile_allergies or {}
+
     all_alerts: list[Alert] = []
     all_unchecked: list[UncheckedMedication] = []
+    unmatched_allergies: list[dict] = []
     per_patient: list[dict] = []
 
     for profile_id, meds in sorted(grouped.items()):
         name = profile_names.get(profile_id, "")
-        alerts, unchecked = check_patient(meds, profile_id, name, registry)
+        alerts, unchecked = check_patient(
+            meds, profile_id, name, registry, profile_allergies.get(profile_id) or []
+        )
         all_alerts.extend(alerts)
         all_unchecked.extend(unchecked)
+        unmatched_allergies.extend(getattr(alerts, "unmatched_allergies", ()) or ())
         per_patient_truncated = getattr(alerts, "truncated_count", 0)
         per_patient.append({
             "profile_id": profile_id,
@@ -654,7 +754,12 @@ def check_household(
         # "nothing to worry about" screen for a user whose medicines had never
         # been loaded.
         "coverage_percent": round(100.0 * checked / total, 1) if total else 0.0,
-        "is_complete": total > 0 and len(all_unchecked) == 0,
+        # An allergy name we could not match means the household's own question
+        # ("is anything here unsafe for her?") was not fully answered.
+        "is_complete": (
+            total > 0 and len(all_unchecked) == 0 and not unmatched_allergies
+        ),
+        "unmatched_allergies": list(unmatched_allergies),
         "patients": per_patient,
     }
     critical = sum(1 for a in all_alerts if a.severity in ("contraindicated", "major"))
@@ -662,6 +767,7 @@ def check_household(
     return {
         "alerts": [a.to_dict() for a in all_alerts],
         "unchecked": [u.to_dict() for u in all_unchecked],
+        "unmatched_allergies": list(unmatched_allergies),
         "coverage": coverage,
         "critical_count": critical,
         "truncated_count": truncated_total,
@@ -876,11 +982,35 @@ def build_schedule(
     # Deterministic order: stable across runs for the same input.
     active.sort(key=lambda m: (m.get("id") or m.get("brand_name") or ""))
 
+    # S-2: a medicine the household recorded an allergy to is never placed in
+    # the timetable. The alert says why; the timetable simply does not offer it.
+    allergy_blocked: dict[str, str] = {}
+    for alert in patient_alerts:
+        if alert.get("kind") != "allergy":
+            continue
+        for med_id in alert.get("med_ids") or []:
+            if med_id:
+                allergy_blocked[med_id] = alert.get("title", "")
+
+    blocked_medications: list[dict] = []
+
     # S-7: a medicine we are not sure we read correctly never enters the
     # timetable. It is listed separately, in plain words, for a person to check.
     awaiting_confirmation: list[dict] = []
     schedulable: list[dict] = []
     for med in active:
+        med_key = med.get("id") or med.get("brand_name", "")
+        if med_key in allergy_blocked:
+            blocked_medications.append({
+                "med_id": med.get("id", ""),
+                "med_name": med.get("brand_name", ""),
+                "reason": "recorded_allergy",
+                "note": (
+                    f"{allergy_blocked[med_key]}. This medicine has no reminder "
+                    "times. Please speak to the prescriber or pharmacist."
+                ),
+            })
+            continue
         reason = _needs_identity_confirmation(med)
         if reason:
             awaiting_confirmation.append({
@@ -1089,7 +1219,11 @@ def build_schedule(
         # "verified"       - every prescribed dose placed, no constraint violated
         # "partial"        - some doses could not be placed safely (see conflicts)
         # "unsafe_conflict"- the independent verifier found a violated constraint
-        "schedule_status": "partial" if (conflicts or awaiting_confirmation) else "verified",
+        "schedule_status": (
+            "partial"
+            if (conflicts or awaiting_confirmation or blocked_medications)
+            else "verified"
+        ),
         "generated_by": "deterministic_solver",
         "knowledge_base": registry.versions,
         "review_status": registry.review_status,
@@ -1107,6 +1241,8 @@ def build_schedule(
         # Medicines held out of the timetable until a person confirms what they
         # are. Never a percentage: "not sure, please check".
         "awaiting_confirmation": awaiting_confirmation,
+        # Medicines withheld from the timetable because of a recorded allergy.
+        "blocked_medications": blocked_medications,
         # Medicines taken only when needed: listed, never given reminder times.
         "as_needed": as_needed,
         # Reducing courses, with each stated step kept separate.

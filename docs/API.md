@@ -217,6 +217,8 @@ the finished schedule with an independent checker** before returning it.
                                "timing": ["08:00"], "instruction": "" } ],
                   "note": "…" } ],
     "schedule_kind_notes": [],
+    "blocked_medications": [ { "med_id": "…", "med_name": "…",
+                              "reason": "recorded_allergy", "note": "…" } ],
     "awaiting_confirmation": [                   // held out of the timetable
       { "med_id": "…", "med_name": "…", "reason": "ingredients_not_identified",
         "note": "We are not sure we read this medicine correctly, so it has no reminder times yet. Please check it." } ] } ],
@@ -231,6 +233,22 @@ default), `taper` (a reducing course, with the stated steps in `taper_steps`) or
 `as_needed`. A taper keeps every stated step in `tapers`; the timetable shows the
 current step only, and no step is invented or merged. An unrecognised value falls
 back to `fixed` and is disclosed in `schedule_kind_notes`.
+
+### Allergies
+
+`GET /api/v1/profiles/{profile_id}/allergies` -> `{ "allergies": [ ... ], "count": n }`
+`POST /api/v1/profiles/{profile_id}/allergies` body `{ "label": "penicillin",
+"note": "", "ingredient_id": "" }` -> the stored entry, with `recorded_by` and
+`recorded_at`.
+`DELETE /api/v1/profiles/{profile_id}/allergies/{allergy_id}`
+
+An allergy is the household's own record, not a diagnosis; every alert says
+"you recorded". A medicine containing a recorded allergen produces a
+`contraindicated` alert of kind `allergy` with an avoid action, and is listed in
+`schedule.blocked_medications` instead of being given dose times. An allergy name
+that cannot be matched to a known ingredient appears in `unmatched_allergies`
+(top level and inside `coverage`) and forces `coverage.is_complete` to `false` -
+the household asked a question the system could not fully answer.
 
 `awaiting_confirmation` lists medicines read with low confidence
 (`resolution_confidence` of `low`/`none`, or a `confidence` of `low` from the

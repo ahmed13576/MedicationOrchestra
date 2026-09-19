@@ -785,3 +785,69 @@ def test_a_taper_is_never_invented_for_an_ordinary_medicine(registry):
     schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
     assert schedule["tapers"] == []
     assert schedule["dose_times"][0]["medications"][0]["schedule_kind"] == "fixed"
+
+
+# ── S-2 · Recorded allergies ─────────────────────────────────────────────────
+
+
+def test_a_recorded_allergy_is_reported_and_blocks_the_schedule(registry):
+    """The medicine is not placed and the response carries the alert."""
+    meds = [med("m1", "Brufen"), med("m2", "Warf")]
+    allergies = [{"label": "ibuprofen", "recorded_by": "u1", "recorded_at": "2026-01-01"}]
+    alerts, _ = check_patient(meds, "p1", registry=registry, allergies=allergies)
+
+    allergy = [a for a in alerts if a.kind == "allergy"]
+    assert len(allergy) == 1
+    # An allergy hit is never a soft warning.
+    assert allergy[0].severity == "contraindicated"
+    assert "avoid" in allergy[0].action.lower()
+    assert allergy[0].med_ids == ["m1"]
+    # Phrased as the household's own record, not as a diagnosis.
+    assert "you recorded" in allergy[0].title.lower()
+
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    blocked = {b["med_id"] for b in schedule["blocked_medications"]}
+    assert blocked == {"m1"}
+    placed = {
+        d["med_id"]
+        for slot in schedule["dose_times"]
+        for d in slot["medications"]
+    }
+    assert "m1" not in placed
+    assert schedule["schedule_status"] == "partial"
+
+
+def test_an_unresolved_allergy_name_is_surfaced_not_ignored(registry):
+    meds = [med("m1", "Brufen")]
+    allergies = [{"label": "something white she reacted to", "recorded_by": "u1"}]
+    result = check_household(
+        meds, {"p1": "Asha"}, registry, {"p1": allergies}
+    )
+    unmatched = result["unmatched_allergies"]
+    assert len(unmatched) == 1
+    assert unmatched[0]["label"] == "something white she reacted to"
+    assert unmatched[0]["reason"] == "allergy_not_matched"
+    assert "not checked" in unmatched[0]["note"].lower()
+
+
+def test_no_green_banner_when_an_allergy_is_unmatched(registry):
+    meds = [med("m1", "Brufen")]
+    clean = check_household(meds, {"p1": "Asha"}, registry)
+    assert clean["coverage"]["is_complete"] is True
+
+    with_unmatched = check_household(
+        meds, {"p1": "Asha"}, registry, {"p1": [{"label": "zzz unknown thing"}]}
+    )
+    assert with_unmatched["coverage"]["is_complete"] is False
+    assert with_unmatched["coverage"]["unmatched_allergies"]
+
+
+def test_an_allergy_is_only_applied_to_the_patient_who_recorded_it(registry):
+    meds = [med("m1", "Brufen", profile_id="p1"), med("m2", "Brufen", profile_id="p2")]
+    result = check_household(
+        meds, {"p1": "Asha", "p2": "Ravi"}, registry,
+        {"p1": [{"label": "ibuprofen"}]},
+    )
+    allergy = [a for a in result["alerts"] if a["kind"] == "allergy"]
+    assert len(allergy) == 1
+    assert allergy[0]["profile_id"] == "p1"
