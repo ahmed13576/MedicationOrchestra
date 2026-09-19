@@ -72,6 +72,55 @@ def record(
         logger.warning("audit: failed to record %s for %s: %s", event, user_id, exc)
 
 
+#: The largest page the export will hand back in one response. A bigger number
+#: would silently hit Firestore and response-size limits instead; the caller
+#: pages with the cursor rather than losing the tail.
+MAX_PAGE_SIZE = 500
+
+
+def _shape(doc) -> dict:
+    data = doc.to_dict() or {}
+    at = data.get("at")
+    data["audit_id"] = doc.id
+    data["at"] = at.isoformat() if hasattr(at, "isoformat") else str(at)
+    return data
+
+
+def page_events(
+    user_id: str, page_size: int = MAX_PAGE_SIZE, cursor: str = "", db=None
+) -> tuple[list[dict], str]:
+    """One page of audit entries, oldest first, plus the cursor for the next.
+
+    The export used to ask for 500 entries and return them as if they were the
+    whole trail. A subject-access request that quietly drops the oldest events
+    is not a complete export, so the trail is paged: the cursor is the "at"
+    timestamp of the last entry handed back, and an empty cursor means the
+    caller has now seen everything.
+    """
+    if db is None:
+        from services.firestore_service import db as _db
+
+        db = _db
+    size = max(1, min(int(page_size or MAX_PAGE_SIZE), MAX_PAGE_SIZE))
+    try:
+        query = (
+            db.collection("users").document(user_id)
+              .collection("audit").order_by("at")
+        )
+        if cursor:
+            query = query.start_after({"at": cursor})
+        # One extra row tells us whether a next page exists without a count query.
+        docs = list(query.limit(size + 1).stream())
+    except Exception as exc:
+        logger.warning("audit: could not page events for %s: %s", user_id, exc)
+        raise
+
+    has_more = len(docs) > size
+    entries = [_shape(doc) for doc in docs[:size]]
+    next_cursor = entries[-1]["at"] if (has_more and entries) else ""
+    return entries, next_cursor
+
+
 def list_events(user_id: str, limit: int = 100, db=None) -> list[dict]:
     """Return recent audit entries, newest last. Used by the export endpoint."""
     if db is None:

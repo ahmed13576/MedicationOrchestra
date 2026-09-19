@@ -639,3 +639,75 @@ def test_an_unknown_consent_purpose_is_refused(api):
         "consent_version": "1.0", "accepted": True, "purposes": ["everything"],
     })
     assert response.status_code == 400
+
+
+# ── D-3 · The export is complete, not capped ─────────────────────────────────
+
+
+def _seed_audit(api, count: int) -> None:
+    """Write `count` audit entries with distinct, ordered timestamps."""
+    from datetime import UTC, datetime, timedelta
+
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for i in range(count):
+        api.store.collection("users").document(api.user_id) \
+            .collection("audit").document(f"seed-{i:05d}").set({
+                "event": "interaction.checked", "actor": api.user_id,
+                "profile_id": "", "subject_id": "", "detail": {"i": i},
+                "at": base + timedelta(seconds=i),
+            })
+
+
+def test_the_export_says_when_there_is_more_history_to_come(api):
+    _seed_audit(api, 640)
+    body = api.get("/api/v1/users/export").json()
+    trail = body["audit_trail"]
+    assert trail["complete"] is False
+    assert trail["next_cursor"]
+    assert trail["how_to_continue"]
+
+
+def test_the_whole_audit_trail_can_be_exported_by_paging(api):
+    _seed_audit(api, 640)
+    seen, cursor, pages = [], "", 0
+    while True:
+        body = api.get("/api/v1/users/export",
+                       params={"audit_cursor": cursor} if cursor else {}).json()
+        trail = body["audit_trail"]
+        seen.extend(trail["entries"])
+        pages += 1
+        cursor = trail["next_cursor"]
+        if not cursor:
+            assert trail["complete"] is True
+            break
+        assert pages < 10, "pagination is not terminating"
+    ids = [e["audit_id"] for e in seen]
+    # Every seeded entry appears exactly once, including the oldest - the ones
+    # the old 500-entry cap silently dropped.
+    assert len(ids) == len(set(ids))
+    assert "seed-00000" in ids and "seed-00639" in ids
+
+
+def test_entries_come_back_oldest_first_and_never_repeat_across_pages(api):
+    _seed_audit(api, 12)
+    first = api.get("/api/v1/users/export",
+                    params={"audit_page_size": 5}).json()["audit_trail"]
+    assert [e["detail"]["i"] for e in first["entries"]] == [0, 1, 2, 3, 4]
+    second = api.get("/api/v1/users/export", params={
+        "audit_page_size": 5, "audit_cursor": first["next_cursor"],
+    }).json()["audit_trail"]
+    assert [e["detail"]["i"] for e in second["entries"]] == [5, 6, 7, 8, 9]
+
+
+def test_a_failed_history_read_refuses_rather_than_exporting_a_partial_copy(api,
+                                                                            monkeypatch):
+    import services.audit_service as audit
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("firestore unavailable")
+
+    monkeypatch.setattr(audit, "page_events", boom)
+    response = api.get("/api/v1/users/export")
+    assert response.status_code == 503
+    # No body pretending to be an export.
+    assert "audit_trail" not in response.json()

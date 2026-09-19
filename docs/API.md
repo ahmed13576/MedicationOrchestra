@@ -234,6 +234,21 @@ default), `taper` (a reducing course, with the stated steps in `taper_steps`) or
 current step only, and no step is invented or merged. An unrecognised value falls
 back to `fixed` and is disclosed in `schedule_kind_notes`.
 
+### Exporting your data
+
+`GET /api/v1/users/export?audit_cursor=&audit_page_size=500` returns profiles,
+medications, settings and the audit trail. The trail is paged:
+
+```json
+"audit_trail": { "entries": [...], "count": 500, "next_cursor": "2026-01-01T00:08:20+00:00",
+                 "complete": false, "how_to_continue": "..." }
+```
+
+Follow `next_cursor` until it is empty; `complete: true` then means the caller
+holds the entire history. Entries come back oldest first and never repeat across
+pages. If the history cannot be read the endpoint returns **503** rather than a
+partial export that looks complete.
+
 ### Consent gates processing
 
 Every endpoint that reads, stores or sends health data checks a consent scope

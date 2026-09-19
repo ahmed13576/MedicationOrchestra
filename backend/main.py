@@ -1326,9 +1326,32 @@ async def record_consent(
 
 
 @app.get("/api/v1/users/export")
-async def export_user_data(user_id: str = Depends(verify_firebase_token)):
-    """Data-subject access request: everything we hold, in one JSON document."""
+async def export_user_data(
+    audit_cursor: str = Query("", max_length=64),
+    audit_page_size: int = Query(audit_service.MAX_PAGE_SIZE, ge=1,
+                                 le=audit_service.MAX_PAGE_SIZE),
+    user_id: str = Depends(verify_firebase_token),
+):
+    """Data-subject access request: everything we hold, in one JSON document.
+
+    The audit trail can outgrow a single response, so it is paged rather than
+    cut off at 500 entries: follow `audit_trail.next_cursor` until it is empty
+    and the export is complete. `audit_trail.complete` says, in the document
+    itself, whether the caller is holding the whole trail.
+    """
     _guard(user_id, "interactions")
+
+    try:
+        entries, next_cursor = audit_service.page_events(
+            user_id, page_size=audit_page_size, cursor=audit_cursor
+        )
+    except Exception as exc:
+        # A partial export that looks complete is worse than a failed one.
+        logger.error("Export failed to read the audit trail for %s: %s", user_id, exc)
+        raise HTTPException(
+            503, "We could not read the full history, so we did not send a "
+                 "partial export. Please try again."
+        ) from exc
 
     profiles = await firestore_service.get_profiles(user_id)
     payload = {
@@ -1337,7 +1360,16 @@ async def export_user_data(user_id: str = Depends(verify_firebase_token)):
         "profiles": profiles,
         "medications": {},
         "settings": ( _user_ref(user_id).get().to_dict() or {}),
-        "audit_trail": audit_service.list_events(user_id, limit=500),
+        "audit_trail": {
+            "entries": entries,
+            "count": len(entries),
+            "next_cursor": next_cursor,
+            "complete": not next_cursor,
+            "how_to_continue": (
+                "Call this endpoint again with audit_cursor set to next_cursor "
+                "to receive the rest of the history."
+            ) if next_cursor else "",
+        },
     }
     for profile in profiles:
         pid = profile.get("profile_id") or profile.get("id")

@@ -86,18 +86,44 @@ class DocRef:
         return dict(self._store.docs.get(self._path) or {})
 
 
+def _sort_key(value):
+    """Order values the way Firestore would, without crashing on mixed types."""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return "" if value is None else str(value)
+
+
 class Query:
-    def __init__(self, store: FakeFirestore, path: tuple[str, ...], filters=None, cap=None):
+    def __init__(self, store: FakeFirestore, path: tuple[str, ...], filters=None,
+                 cap=None, order=None, after=None):
         self._store = store
         self._path = path
         self._filters = filters or []
         self._cap = cap
+        self._order = order
+        self._after = after
+
+    def _copy(self, **changes) -> Query:
+        kwargs = {
+            "filters": self._filters, "cap": self._cap,
+            "order": self._order, "after": self._after,
+        }
+        kwargs.update(changes)
+        return Query(self._store, self._path, **kwargs)
 
     def where(self, field: str, op: str, value) -> Query:
-        return Query(self._store, self._path, [*self._filters, (field, op, value)], self._cap)
+        return self._copy(filters=[*self._filters, (field, op, value)])
 
     def limit(self, count: int) -> Query:
-        return Query(self._store, self._path, self._filters, count)
+        return self._copy(cap=count)
+
+    def order_by(self, field: str) -> Query:
+        """Firestore orders by a field; the fake does the same so pagination is
+        exercised against the same contract the real database enforces."""
+        return self._copy(order=field)
+
+    def start_after(self, values: dict) -> Query:
+        return self._copy(after=values)
 
     def _matches(self) -> list[Snapshot]:
         out = []
@@ -111,7 +137,15 @@ class Query:
                     ok = False
             if ok:
                 out.append(Snapshot(DocRef(self._store, path), data))
-        out.sort(key=lambda s: s.id)
+        if self._order:
+            field = self._order
+            out.sort(key=lambda s: (_sort_key(s.to_dict().get(field)), s.id))
+        else:
+            out.sort(key=lambda s: s.id)
+        if self._after:
+            for field, value in self._after.items():
+                bound = _sort_key(value)
+                out = [s for s in out if _sort_key(s.to_dict().get(field)) > bound]
         return out[: self._cap] if self._cap else out
 
     def stream(self):
@@ -141,6 +175,12 @@ class CollectionRef:
 
     def limit(self, count: int) -> Query:
         return Query(self._store, self._path).limit(count)
+
+    def order_by(self, field: str) -> Query:
+        return Query(self._store, self._path).order_by(field)
+
+    def start_after(self, values: dict) -> Query:
+        return Query(self._store, self._path).start_after(values)
 
     def add(self, data: dict) -> tuple[None, DocRef]:
         ref = self.document()
