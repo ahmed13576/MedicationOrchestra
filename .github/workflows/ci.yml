@@ -1,8 +1,17 @@
 name: CI
 
 # Every push and every pull request must pass the same gate that runs before a
-# release: the safety invariants, the test-suite, an audit of the dependency
-# tree, and a check that the container actually contains its clinical data.
+# release: the static checks, the safety invariants, the test-suite, an audit of
+# the dependency tree, and a check that the container actually contains its
+# clinical data.
+#
+# Shape of the pipeline (fail fast):
+#   static  -> seconds. Pure-stdlib script/knowledge checks. Everything else
+#              `needs` it, so a broken script never waits for a Docker build.
+#   backend -> lint, dependency audit, safety invariants, tests.
+#   flutter -> analyse + test.
+#   docker  -> the slow build runs in parallel with the two above, layer-cached
+#              between runs.
 
 on:
   push:
@@ -22,10 +31,10 @@ env:
   PROJECT_ID: "ci-project"
 
 jobs:
-  backend:
-    name: Backend tests and safety invariants
+  static:
+    name: Static checks and knowledge base integrity
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -33,36 +42,70 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
 
-      - name: Install dependencies
-        working-directory: backend
+      - name: Lint (ruff only — the fastest signal the job has)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pipx install ruff==0.14.2
+          ruff check backend/ --output-format=github
 
-      - name: Lint
-        working-directory: backend
-        run: ruff check . --output-format=github
+      - name: Shell scripts parse
+        run: |
+          set -e
+          for script in ./*.sh; do
+            bash -n "$script"
+          done
+          if command -v shellcheck >/dev/null; then
+            shellcheck --severity=warning ./*.sh
+          else
+            echo "shellcheck is not installed; skipping lints"
+          fi
 
-      - name: Dependency vulnerability audit
-        working-directory: backend
-        run: pip-audit -r requirements.txt --strict --desc
+      - name: Deployment scripts reference files that exist
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
 
-      - name: Safety invariant audit (must exit 0)
-        run: python scripts/safety_invariant_audit.py
+          errors = []
+          for script in ("deploy.ps1", "monitoring_setup.ps1"):
+              text = pathlib.Path(script).read_text()
+              for name in re.findall(r'"(monitoring_[a-z_]*\.json)"', text):
+                  if not pathlib.Path(name).exists():
+                      errors.append(f"{script} refers to {name}, which is not in the repository")
+              if re.search(r'project-[0-9a-f]{8}-', text):
+                  errors.append(f"{script} contains a hardcoded project id")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print("deployment scripts reference existing files and no hardcoded project")
+          PY
 
-      - name: Tests
-        working-directory: backend
-        run: python -m pytest tests/ -q --maxfail=1
+      - name: The dashboard is a valid four-chart dashboard
+        run: |
+          python - <<'PY'
+          import json, sys
+
+          dashboard = json.loads(open("monitoring_dashboard.json").read())
+          tiles = dashboard["mosaicLayout"]["tiles"]
+          errors = []
+          if len(tiles) != 4:
+              errors.append(f"expected 4 charts, found {len(tiles)}")
+          for i, tile in enumerate(tiles):
+              if not {"xPos", "yPos", "width", "height", "widget"} <= set(tile):
+                  errors.append(f"tile {i} is missing position or widget keys")
+              if not tile.get("widget", {}).get("title"):
+                  errors.append(f"tile {i} has no title")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print("OK: 4 titled charts")
+          PY
 
       - name: Clinical knowledge base integrity
-        working-directory: backend
         run: |
           python - <<'PY'
           import json, pathlib, sys
 
-          knowledge = pathlib.Path("knowledge")
+          knowledge = pathlib.Path("backend/knowledge")
           ingredients = json.loads((knowledge / "ingredients.json").read_text())
           interactions = json.loads((knowledge / "interactions.json").read_text())
 
@@ -127,15 +170,87 @@ jobs:
           print(f"OK: {len(rules)} rules, {len(known)} ingredients, all cited")
           PY
 
+  backend:
+    name: Backend tests and safety invariants
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Dependency vulnerability audit
+        working-directory: backend
+        run: pip-audit -r requirements.txt --strict --desc
+
+      - name: Safety invariant audit (must exit 0)
+        run: python scripts/safety_invariant_audit.py
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest tests/ -q --maxfail=1
+
+  flutter:
+    name: Flutter analyse and test
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: medication_orchestra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          # flutter-action's cache: true only caches the SDK, not the packages.
+          # Key on the lock file so a pubspec change re-fetches, everything else
+          # restores in seconds.
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('medication_orchestra/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
   docker:
     name: Container builds with its knowledge base
+    needs: static
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build image
-        run: docker build -t medication-orchestra:ci ./backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          tags: medication-orchestra:ci
+          load: true
+          # The knowledge base and the dependency layer rarely change; caching
+          # them turns a cold ~4-minute build into a warm ~30-second one.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: The image must contain a usable knowledge base
         run: |
@@ -155,37 +270,6 @@ jobs:
             exit 1
           fi
 
-      - name: Shell scripts parse
-        run: |
-          set -e
-          for script in ./*.sh; do
-            bash -n "$script"
-          done
-          if command -v shellcheck >/dev/null; then
-            shellcheck --severity=warning ./*.sh
-          else
-            echo "shellcheck is not installed; skipping lints"
-          fi
-
-      - name: Deployment scripts reference files that exist
-        run: |
-          python - <<'PY'
-          import pathlib, re, sys
-
-          errors = []
-          for script in ("deploy.ps1", "monitoring_setup.ps1"):
-              text = pathlib.Path(script).read_text()
-              for name in re.findall(r'"(monitoring_[a-z_]*\.json)"', text):
-                  if not pathlib.Path(name).exists():
-                      errors.append(f"{script} refers to {name}, which is not in the repository")
-              if re.search(r'project-[0-9a-f]{8}-', text):
-                  errors.append(f"{script} contains a hardcoded project id")
-          if errors:
-              print("\n".join(errors))
-              sys.exit(1)
-          print("deployment scripts reference existing files and no hardcoded project")
-          PY
-
       - name: The service must refuse to start without a knowledge base
         run: |
           set +e
@@ -198,22 +282,3 @@ jobs:
             echo "::error::the service started with no clinical knowledge base"
             exit 1
           fi
-
-  flutter:
-    name: Flutter analyse and test
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: medication_orchestra
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos
-      - run: flutter test

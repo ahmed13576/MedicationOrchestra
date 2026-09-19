@@ -17,7 +17,9 @@ dependencies:
   flutter_local_notifications: ^17.2.2
   # Required by zonedSchedule: reminders are pinned to the device's wall clock,
   # so a dose at 08:00 stays at 08:00 across timezone and DST changes.
-  timezone: ^0.10.0
+  # 0.9.x is what flutter_local_notifications 17.x depends on; 0.10 does not
+  # resolve against it.
+  timezone: ^0.9.4
   flutter_timezone: ^5.0.0
   # Camera
   camera: ^0.11.0+2
