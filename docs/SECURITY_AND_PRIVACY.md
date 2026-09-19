@@ -108,7 +108,7 @@ above are the ones that must be closed before onboarding any paying household.
   Firebase configuration — `medication_orchestra/firebase.json`,
   `lib/firebase_options.dart` and `android/app/google-services.json` — which name
   the **demo** project and must be regenerated with `flutterfire configure`
-  before any real deployment (docs/HANDOFF.md, task S-1).
+  before any real deployment (HANDOFF.md at the repository root, task H-4).
 
 ## 7. Emergency-path specifics (SOS)
 
