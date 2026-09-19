@@ -143,6 +143,7 @@ class Harness:
         self.store = FakeFirestore()
         main.rate_limit.limiter = RateLimiter()
         self.rebind()
+        self.record_consent()
 
     def rebind(self) -> None:
         """Point the app at the in-memory store (also after a module reload)."""
@@ -162,6 +163,19 @@ class Harness:
         self.store = FakeFirestore()
         self.main.rate_limit.limiter = RateLimiter()
         self.rebind()
+        self.record_consent()
+
+    def record_consent(self, user_id: str = None) -> None:
+        """Give the audit user a real consent record (D-1 gates every endpoint)."""
+        from services import consent_service
+
+        self.store.collection("users").document(user_id or AUDIT_USER).set({
+            "consent": {
+                "consent_version": "audit-1",
+                "accepted": True,
+                "purposes": sorted(consent_service.SCOPES),
+            },
+        }, merge=True)
 
     # -- endpoint callers (the real functions, not reimplementations) --------
 

@@ -27,7 +27,7 @@ import os
 import re
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +36,7 @@ from google.cloud import firestore
 from pydantic import BaseModel, Field
 
 from agents.agent_security import sanitize_text_input
-from services import audit_service, firestore_service, rate_limit
+from services import audit_service, consent_service, firestore_service, rate_limit
 from services.auth_service import verify_firebase_token
 from services.clinical_engine import build_schedule, check_household
 from services.explanation_service import SUPPORTED_LANGUAGES, rewrite_findings
@@ -131,6 +131,24 @@ except KnowledgeBaseError as exc:  # pragma: no cover - startup guard
 
 def _guard(user_id: str, key: str) -> None:
     rate_limit.limiter.check(key, user_id)
+
+
+def _stored_consent(user_id: str) -> dict:
+    try:
+        doc = _user_ref(user_id).get()
+        return (doc.to_dict() or {}).get("consent") or {} if doc.exists else {}
+    except Exception:
+        # A read failure is never treated as consent.
+        return {}
+
+
+def _require_consent(user_id: str, scope: str) -> None:
+    """Refuse the request unless this exact purpose has been agreed to.
+
+    Checked before any health data is read, written or sent to a sub-processor.
+    An account with no record is re-prompted, not grandfathered.
+    """
+    consent_service.require(_stored_consent(user_id), scope)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +281,9 @@ class ConsentPayload(BaseModel):
     consent_version: str = Field(min_length=1, max_length=32)
     accepted: bool
     purposes: list[str] = Field(default_factory=list, max_length=10)
+    #: For data about someone who is not the app user (a parent, a child):
+    #: on whose authority this consent was given.
+    authority_note: str = Field(default="", max_length=200)
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +549,7 @@ async def scan_medication_image(
     user_id: str = Depends(verify_firebase_token),
 ):
     """Extract medications from a prescription or strip photo. Does not save."""
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     _guard(user_id, "scan")
     if image_type not in ("auto", "prescription", "blister_pack"):
         raise HTTPException(400, "Invalid image_type. Use: auto, prescription, blister_pack.")
@@ -590,6 +612,7 @@ async def scan_blister_pack(
     profile_id: str = Form(...),
     user_id: str = Depends(verify_firebase_token),
 ):
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     _guard(user_id, "scan")
     raw = await image.read()
     try:
@@ -637,6 +660,7 @@ async def confirm_medications(
     # must exist for its medications subcollection to be readable later.
     profile_ref.set({"profile_id": payload.profile_id, "updated_at": _now()}, merge=True)
 
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     col = _medications_ref(user_id, payload.profile_id)
     saved_ids: list[str] = []
     for med in payload.medications[:50]:
@@ -676,6 +700,7 @@ async def add_medication_manually(
     payload: MedicationPayload,
     user_id: str = Depends(verify_firebase_token),
 ):
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     _guard(user_id, "confirm")
     med_id = str(uuid.uuid4())
     data = _clean_fields(payload.model_dump(), {
@@ -914,6 +939,7 @@ async def get_interactions(
         if not profile.exists:
             raise HTTPException(404, "Profile not found")
 
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     result = await _run_check(user_id, None if profile_id == "all" else profile_id, language)
     audit_service.record(
         user_id, audit_service.EVENT_INTERACTION_CHECK,
@@ -1009,6 +1035,7 @@ async def generate_schedule_endpoint(
     user_id: str = Depends(verify_firebase_token),
 ):
     """Generate verified daily schedules - one per patient, deterministically."""
+    _require_consent(user_id, consent_service.SCOPE_MEDICATION_REVIEW)
     _guard(user_id, "schedule")
     meds = _fetch_medications(user_id, None if profile_id == "all" else profile_id)
     if not meds:
@@ -1077,6 +1104,7 @@ async def add_family_member(
     payload: FamilyMemberPayload,
     user_id: str = Depends(verify_firebase_token),
 ):
+    _require_consent(user_id, consent_service.SCOPE_CAREGIVER_SHARING)
     member_id = await firestore_service.add_family_member(
         user_id,
         sanitize_text_input(payload.name, max_length=80),
@@ -1123,6 +1151,7 @@ async def trigger_sos_alert(
         user's document is ever written;
       * the response is a delivery receipt, not a count.
     """
+    _require_consent(user_id, consent_service.SCOPE_SOS_CONTACTS)
     _guard(user_id, "sos")
     _guard(user_id, "sos_outbound")
 
@@ -1262,20 +1291,38 @@ async def record_consent(
     data; processing them without a recorded, versioned consent is not defensible
     under India's DPDP Act 2023.
     """
+    unknown = [p for p in payload.purposes if p not in consent_service.SCOPES]
+    if unknown:
+        raise HTTPException(
+            400,
+            "Unknown consent purpose(s): " + ", ".join(sorted(unknown))
+            + ". Known purposes: " + ", ".join(sorted(consent_service.SCOPES)),
+        )
     entry = {
         "consent_version": payload.consent_version,
         "accepted": payload.accepted,
-        "purposes": payload.purposes,
+        # Withdrawal grants nothing, whatever the body says. Processing stops on
+        # the very next request, because every gated endpoint reads this record.
+        "purposes": payload.purposes if payload.accepted else [],
+        "recorded_by": user_id,
+        "authority_note": payload.authority_note,
         "at": _now(),
     }
+    if not payload.accepted:
+        # Withdrawal starts a retention-limited deletion clock rather than
+        # leaving the data in place indefinitely.
+        entry["withdrawn_at"] = entry["at"]
+        entry["deletion_due_at"] = entry["at"] + timedelta(days=30)
     _user_ref(user_id).set({"consent": entry}, merge=True)
     _user_ref(user_id).collection("consent_history").add(dict(entry))
     audit_service.record(user_id, audit_service.EVENT_CONSENT,
                          detail={"version": payload.consent_version,
                                  "accepted": payload.accepted})
-    return {"recorded": True, "consent": {
-        **entry, "at": entry["at"].isoformat(),
-    }}
+    out = {**entry, "at": entry["at"].isoformat()}
+    for key in ("withdrawn_at", "deletion_due_at"):
+        if key in out:
+            out[key] = out[key].isoformat()
+    return {"recorded": True, "consent": out, "known_scopes": consent_service.SCOPES}
 
 
 @app.get("/api/v1/users/export")

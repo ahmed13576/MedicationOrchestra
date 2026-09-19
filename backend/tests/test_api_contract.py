@@ -477,7 +477,7 @@ def test_schedule_with_no_medications_says_so(api):
 def test_consent_is_recorded_with_a_version(api):
     response = api.post("/api/v1/users/consent", json={
         "consent_version": "1.0", "accepted": True,
-        "purposes": ["medication_safety"],
+        "purposes": ["medication_review"],
     })
     assert response.status_code == 200
     settings = api.get("/api/v1/users/settings").json()
@@ -565,3 +565,77 @@ def _audit_events(api) -> list[dict]:
     import services.audit_service as audit
 
     return audit.list_events(api.user_id, limit=500, db=api.store)
+
+
+# ── D-1 · Consent gates processing ───────────────────────────────────────────
+
+
+def _clear_consent(api):
+    api.store.collection("users").document(api.user_id).set({"consent": {}}, merge=True)
+
+
+def test_scan_is_refused_without_a_recorded_consent(api):
+    _clear_consent(api)
+    response = api.post(
+        "/api/v1/medications/scan",
+        files={"image": ("rx.jpg", b"not-an-image", "image/jpeg")},
+        data={"profile_id": "p1"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "consent_required"
+
+
+def test_the_refusal_names_the_scope_that_is_missing(api):
+    api.post("/api/v1/users/consent", json={
+        "consent_version": "1.0", "accepted": True,
+        "purposes": ["medication_review"],
+    })
+    # Caregiver sharing was never agreed to, so adding a caregiver is refused,
+    # and the refusal says exactly which agreement is missing.
+    response = api.post("/api/v1/family", json={
+        "name": "Ravi", "fcm_token": "tok", "phone": "", "relationship": "son",
+    })
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["missing_scope"] == "caregiver_sharing"
+    assert detail["what_this_covers"]
+
+
+def test_withdrawing_consent_blocks_the_next_scan(api):
+    api.post("/api/v1/users/consent", json={
+        "consent_version": "1.0", "accepted": True,
+        "purposes": ["medication_review"],
+    })
+    assert api.get("/api/v1/interactions").status_code == 200
+
+    withdrawal = api.post("/api/v1/users/consent", json={
+        "consent_version": "1.0", "accepted": False,
+        "purposes": ["medication_review"],
+    })
+    assert withdrawal.status_code == 200
+    # Withdrawal grants nothing, whatever the body listed, and starts a
+    # retention-limited deletion clock.
+    assert withdrawal.json()["consent"]["purposes"] == []
+    assert withdrawal.json()["consent"]["deletion_due_at"]
+    assert api.get("/api/v1/interactions").status_code == 403
+
+
+def test_an_empty_consent_version_is_not_consent(api):
+    """A consent that cannot be tied to a notice the user saw is not a consent."""
+    api.store.collection("users").document(api.user_id).set({
+        "consent": {"accepted": True, "consent_version": "", "purposes": ["medication_review"]},
+    }, merge=True)
+    assert api.get("/api/v1/interactions").status_code == 403
+
+    # And the endpoint itself refuses to record one.
+    response = api.post("/api/v1/users/consent", json={
+        "consent_version": "", "accepted": True, "purposes": ["medication_review"],
+    })
+    assert response.status_code == 422
+
+
+def test_an_unknown_consent_purpose_is_refused(api):
+    response = api.post("/api/v1/users/consent", json={
+        "consent_version": "1.0", "accepted": True, "purposes": ["everything"],
+    })
+    assert response.status_code == 400

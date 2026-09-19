@@ -234,6 +234,25 @@ default), `taper` (a reducing course, with the stated steps in `taper_steps`) or
 current step only, and no step is invented or merged. An unrecognised value falls
 back to `fixed` and is disclosed in `schedule_kind_notes`.
 
+### Consent gates processing
+
+Every endpoint that reads, stores or sends health data checks a consent scope
+before doing anything. The scopes are `medication_review` (scan, confirm, manual
+add, interaction check, schedule), `photo_storage`, `caregiver_sharing` (adding a
+caregiver) and `sos_contacts` (sending an emergency alert).
+
+`POST /api/v1/users/consent` body `{ "consent_version": "1.0", "accepted": true,
+"purposes": ["medication_review"], "authority_note": "" }`. An unknown purpose is
+rejected with 400. Setting `accepted: false` withdraws: the stored purposes are
+emptied, processing stops on the very next request, and a `deletion_due_at` 30
+days out is recorded.
+
+A missing scope returns **403** with
+`{ "error": "consent_required", "missing_scope": "...", "what_this_covers": "...",
+"message": "..." }`, so the client can open the right consent screen. An account
+with no consent record is re-prompted, never grandfathered, and an empty
+`consent_version` is not a consent.
+
 ### Meal times and food instructions
 
 `POST /api/v1/profiles/{profile_id}/meal-times` body `{ "breakfast": "08:00",

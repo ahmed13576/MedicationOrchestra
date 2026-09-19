@@ -65,6 +65,19 @@ def api(store, monkeypatch):
     client.store = store  # convenience for assertions
     #: the uid every request in these tests is authenticated as
     client.user_id = auth_service._DEV_USER
+
+    # Consent gates every health-data endpoint (D-1), so the ordinary test user
+    # has a real, recorded consent - the same record the API writes. Tests about
+    # consent itself clear or narrow it explicitly.
+    from services import consent_service
+
+    store.collection("users").document(client.user_id).set({
+        "consent": {
+            "consent_version": "test-1",
+            "accepted": True,
+            "purposes": sorted(consent_service.SCOPES),
+        },
+    }, merge=True)
     return client
 
 
