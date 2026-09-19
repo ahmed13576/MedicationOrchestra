@@ -711,3 +711,84 @@ def test_a_failed_history_read_refuses_rather_than_exporting_a_partial_copy(api,
     assert response.status_code == 503
     # No body pretending to be an export.
     assert "audit_trail" not in response.json()
+
+
+# ── D-4 · Deletion covers every store ────────────────────────────────────────
+
+
+def _populate_household(api) -> str:
+    profile_id = api.post("/api/v1/profiles", json={"name": "Dad"}).json()["profile_id"]
+    api.post("/api/v1/medications/manual", json={
+        "profile_id": profile_id, "brand_name": "Dolo 650", "dosage": "650mg",
+    })
+    api.post(f"/api/v1/profiles/{profile_id}/allergies", json={"label": "Brufen"})
+    api.post("/api/v1/devices/register", json={"fcm_token": "device-token-1", "platform": "android"})
+    api.post("/api/v1/family", json={
+        "name": "Ravi", "fcm_token": "family-token-2", "phone": "",
+        "relationship": "son",
+    })
+    api.post("/api/v1/schedule/generate", json={"profile_id": profile_id})
+    api.get("/api/v1/interactions")
+    return profile_id
+
+
+def test_deletion_removes_the_medicines_under_a_profile(api):
+    """A subcollection outlives its parent document, so deleting the profile is
+    not enough - the medicines were still readable after a 'full' deletion."""
+    profile_id = _populate_household(api)
+    meds = api.store.collection("users").document(api.user_id) \
+        .collection("profiles").document(profile_id).collection("medications")
+    assert list(meds.stream())
+
+    api.delete("/api/v1/users/data", params={"confirm": "DELETE_MY_DATA"})
+    assert list(meds.stream()) == []
+
+
+def test_deletion_removes_allergies_devices_family_and_the_device_index(api):
+    profile_id = _populate_household(api)
+    body = api.delete("/api/v1/users/data",
+                      params={"confirm": "DELETE_MY_DATA"}).json()
+
+    user = api.store.collection("users").document(api.user_id)
+    profile = user.collection("profiles").document(profile_id)
+    for ref in (profile.collection("allergies"), user.collection("devices"),
+                user.collection("family_members"), user.collection("schedules"),
+                user.collection("profiles"), user.collection("consent_history")):
+        assert list(ref.stream()) == []
+    # The device index maps a device back to this user; leaving it behind leaves
+    # an identifier behind.
+    left = [d for d in api.store.collection("device_index").stream()
+            if (d.to_dict() or {}).get("user_id") == api.user_id]
+    assert left == []
+    assert body["by_store"]["medications"] >= 1
+    assert body["by_store"]["device_index"] >= 1
+
+
+def test_deletion_reports_the_stores_it_checked(api):
+    _populate_household(api)
+    body = api.delete("/api/v1/users/data",
+                      params={"confirm": "DELETE_MY_DATA"}).json()
+    for store in ("medications", "allergies", "devices", "device_index",
+                  "family_members", "consent_history", "schedules"):
+        assert store in body["stores_checked"]
+    assert body["audit_trail_retained"] is True
+
+
+def test_an_incomplete_deletion_is_never_reported_as_done(api, monkeypatch):
+    import main
+
+    _populate_household(api)
+    monkeypatch.setattr(main, "_remaining_health_data",
+                        lambda uid: {"devices": 2})
+    response = api.delete("/api/v1/users/data", params={"confirm": "DELETE_MY_DATA"})
+    assert response.status_code == 500
+    assert response.json()["detail"]["error"] == "deletion_incomplete"
+    events = [e for e in _audit_events(api) if e["event"] == "data.deleted"]
+    assert events and events[-1]["detail"]["complete"] is False
+
+
+def test_the_audit_trail_survives_the_deletion(api):
+    _populate_household(api)
+    api.delete("/api/v1/users/data", params={"confirm": "DELETE_MY_DATA"})
+    events = [e for e in _audit_events(api) if e["event"] == "data.deleted"]
+    assert events and events[-1]["detail"]["complete"] is True

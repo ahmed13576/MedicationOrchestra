@@ -249,6 +249,21 @@ holds the entire history. Entries come back oldest first and never repeat across
 pages. If the history cannot be read the endpoint returns **503** rather than a
 partial export that looks complete.
 
+### Deleting your data
+
+`DELETE /api/v1/users/data?confirm=DELETE_MY_DATA` erases every store that holds
+the household's data: profiles and the medicines and allergies **inside** each
+profile (a Firestore subcollection outlives its parent document), alerts,
+acknowledged interactions, schedules, interactions, family members, devices, the
+top-level `device_index` entries for this user, and the consent history. The
+audit trail is deliberately kept: it records that the deletion happened and
+holds no health data.
+
+After deleting, the endpoint re-reads every store. Anything left turns the
+response into **500** `deletion_incomplete` naming what remains - a deletion is
+never reported as done when it is not. The success response lists
+`by_store` counts, `stores_checked` and `audit_trail_retained`.
+
 ### Consent gates processing
 
 Every endpoint that reads, stores or sends health data checks a consent scope

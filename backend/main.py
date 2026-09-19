@@ -1379,6 +1379,81 @@ async def export_user_data(
     return payload
 
 
+
+# ── Deletion: every store, or it is not a deletion ───────────────────────────
+
+#: Subcollections hanging off users/{uid}. "audit" is deliberately absent: the
+#: record that a deletion happened must survive it (DPDP requires a
+#: demonstrable trail) and it holds no health data.
+_USER_SUBCOLLECTIONS = (
+    "profiles", "alerts", "acknowledged_interactions", "schedules",
+    "interactions", "family_members", "devices", "consent_history",
+)
+
+#: Subcollections hanging off users/{uid}/profiles/{pid}. Deleting the profile
+#: document does NOT delete these - in Firestore a subcollection outlives its
+#: parent document, so the medicines of a "deleted" household stayed readable.
+_PROFILE_SUBCOLLECTIONS = ("medications", "allergies")
+
+
+def _delete_all(collection_ref) -> int:
+    count = 0
+    for doc in collection_ref.stream():
+        doc.reference.delete()
+        count += 1
+    return count
+
+
+def _erase_everything(user_id: str) -> dict[str, int]:
+    """Delete every store that holds this household's data. Returns the counts."""
+    deleted: dict[str, int] = {}
+
+    # Profiles first, reaching into their subcollections before the parent goes.
+    profile_ids = [doc.id for doc in _user_ref(user_id).collection("profiles").stream()]
+    for name in _PROFILE_SUBCOLLECTIONS:
+        total = 0
+        for pid in profile_ids:
+            total += _delete_all(_profile_ref(user_id, pid).collection(name))
+        deleted[name] = total
+
+    for name in _USER_SUBCOLLECTIONS:
+        deleted[name] = _delete_all(_user_ref(user_id).collection(name))
+
+    # The device index is a top-level collection keyed by token hash; it maps a
+    # device back to this user, so leaving it behind leaves an identifier behind.
+    index_removed = 0
+    for doc in db.collection("device_index").where("user_id", "==", user_id).stream():
+        doc.reference.delete()
+        index_removed += 1
+    deleted["device_index"] = index_removed
+
+    # The user document itself keeps only the tombstone and the withdrawn
+    # consent; every other field is health-adjacent settings and goes.
+    _user_ref(user_id).set({
+        "deleted_at": _now(),
+        "consent": {"accepted": False, "consent_version": "withdrawn", "purposes": []},
+    })
+    return deleted
+
+
+def _remaining_health_data(user_id: str) -> dict[str, int]:
+    """Re-read every store after the delete. Anything left is a failed deletion."""
+    left: dict[str, int] = {}
+    for pid in [doc.id for doc in _user_ref(user_id).collection("profiles").stream()]:
+        for name in _PROFILE_SUBCOLLECTIONS:
+            n = len(list(_profile_ref(user_id, pid).collection(name).stream()))
+            if n:
+                left[f"profiles/{name}"] = left.get(f"profiles/{name}", 0) + n
+    for name in _USER_SUBCOLLECTIONS:
+        n = len(list(_user_ref(user_id).collection(name).stream()))
+        if n:
+            left[name] = n
+    n = len(list(db.collection("device_index").where("user_id", "==", user_id).stream()))
+    if n:
+        left["device_index"] = n
+    return left
+
+
 @app.delete("/api/v1/users/data")
 async def delete_user_data(
     confirm: str = Query(..., max_length=32),
@@ -1390,23 +1465,37 @@ async def delete_user_data(
         raise HTTPException(
             400, "Pass confirm=DELETE_MY_DATA to erase all data for this account."
         )
-    deleted = 0
     try:
-        for collection in ("profiles", "alerts", "acknowledged_interactions",
-                           "schedules", "interactions", "family_members", "devices"):
-            for doc in _user_ref(user_id).collection(collection).stream():
-                doc.reference.delete()
-                deleted += 1
-        _user_ref(user_id).set({
-            "deleted_at": _now(),
-            "consent": {"accepted": False, "consent_version": "withdrawn"},
-        }, merge=True)
+        deleted = _erase_everything(user_id)
+        remaining = _remaining_health_data(user_id)
     except Exception as exc:
         logger.error("Data deletion failed for %s: %s", user_id, exc)
         raise HTTPException(
             500, "We could not complete the deletion. Please contact support."
         ) from exc
 
+    if remaining:
+        # Reporting a deletion that did not happen is the one outcome worse
+        # than failing it, so the leftovers are named rather than swallowed.
+        logger.error("Data deletion left documents behind for %s: %s", user_id, remaining)
+        audit_service.record(user_id, audit_service.EVENT_DELETION,
+                             detail={"documents": sum(deleted.values()),
+                                     "complete": False, "remaining": remaining})
+        raise HTTPException(500, {
+            "error": "deletion_incomplete",
+            "message": "Some of your data could not be erased. Support has been "
+                       "alerted; nothing is being reported as deleted that is not.",
+            "remaining": remaining,
+        })
+
     audit_service.record(user_id, audit_service.EVENT_DELETION,
-                         detail={"documents": deleted})
-    return {"deleted_documents": deleted, "message": "All health data erased."}
+                         detail={"documents": sum(deleted.values()),
+                                 "complete": True, "by_store": deleted})
+    return {
+        "deleted_documents": sum(deleted.values()),
+        "by_store": deleted,
+        "stores_checked": sorted(_USER_SUBCOLLECTIONS + _PROFILE_SUBCOLLECTIONS
+                                 + ("device_index",)),
+        "audit_trail_retained": True,
+        "message": "All health data erased.",
+    }
