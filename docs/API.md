@@ -210,6 +210,13 @@ the finished schedule with an independent checker** before returning it.
     "knowledge_base": { "…": "…" },
     "review_status": "DEMONSTRATION SET - not clinician-reviewed",
     "unchecked_medications": [],
+    "as_needed": [ { "med_id": "…", "med_name": "…", "dose": "…",
+                     "note": "Taken only when needed, so it has no reminder times." } ],
+    "tapers": [ { "med_id": "…", "med_name": "…",
+                  "steps": [ { "step": 1, "dose": "40mg", "duration": "3 days",
+                               "timing": ["08:00"], "instruction": "" } ],
+                  "note": "…" } ],
+    "schedule_kind_notes": [],
     "awaiting_confirmation": [                   // held out of the timetable
       { "med_id": "…", "med_name": "…", "reason": "ingredients_not_identified",
         "note": "We are not sure we read this medicine correctly, so it has no reminder times yet. Please check it." } ] } ],
@@ -218,6 +225,13 @@ the finished schedule with an independent checker** before returning it.
   "unchecked": [], "coverage": { "…": "…" },
   "model_calls_in_decision_path": 0 }
 ```
+A medication may carry `schedule_kind`: `fixed` (same dose every day, the
+default), `taper` (a reducing course, with the stated steps in `taper_steps`) or
+`prn` (only when needed). A `prn` medicine gets **no** dose times and appears in
+`as_needed`. A taper keeps every stated step in `tapers`; the timetable shows the
+current step only, and no step is invented or merged. An unrecognised value falls
+back to `fixed` and is disclosed in `schedule_kind_notes`.
+
 `awaiting_confirmation` lists medicines read with low confidence
 (`resolution_confidence` of `low`/`none`, or a `confidence` of `low` from the
 reader). They get no dose times until a person confirms the identity with

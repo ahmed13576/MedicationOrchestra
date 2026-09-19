@@ -728,6 +728,59 @@ def _doses_per_day(med: dict) -> tuple[int, tuple[str, ...]]:
     return 1, (DEFAULT_SLOT_TIMES[0],)
 
 
+SCHEDULE_KINDS = ("fixed", "taper", "prn")
+# Frequencies that mean "only when needed" - these never get a reminder slot.
+PRN_FREQUENCIES = frozenset({"sos", "prn", "as needed", "when required", "stat"})
+
+
+def _schedule_kind(med: dict) -> tuple[str, str]:
+    """(kind, note): how this medicine is dosed, and anything we had to assume.
+
+    `fixed` - the same dose every day.
+    `taper` - the dose changes in stated steps (e.g. prednisolone).
+    `prn`   - taken only when needed; no reminder times at all.
+
+    Anything unrecognised falls back to `fixed` **and says so**. A taper is
+    never inferred from a dose or a duration: only a stated `schedule_kind` or
+    stated steps produce one, because inventing a step is a dosing error.
+    """
+    raw = str(med.get("schedule_kind") or "").strip().lower()
+    if raw in SCHEDULE_KINDS:
+        return raw, ""
+    if raw:
+        return "fixed", (
+            f"'{raw}' is not a dosing pattern this system knows, so it is treated "
+            "as the same dose every day. Please check it."
+        )
+    if med.get("taper_steps"):
+        return "taper", ""
+    for key in ("frequency_raw", "frequency_english"):
+        value = re.sub(r"\s+", " ", str(med.get(key) or "").strip().lower())
+        if value in PRN_FREQUENCIES:
+            return "prn", ""
+    return "fixed", ""
+
+
+def _taper_steps(med: dict) -> list[dict]:
+    """The stated steps of a reducing course, in order, never merged.
+
+    Only what the prescription said is returned. A step with no dose is kept
+    (and shows as blank) rather than being filled in from a neighbouring step.
+    """
+    steps: list[dict] = []
+    for index, step in enumerate(med.get("taper_steps") or [], start=1):
+        if not isinstance(step, dict):
+            continue
+        steps.append({
+            "step": int(step.get("step") or index),
+            "dose": str(step.get("dose") or step.get("dosage") or ""),
+            "duration": str(step.get("duration") or ""),
+            "timing": [str(t) for t in (step.get("timing") or []) if t],
+            "instruction": str(step.get("instruction") or ""),
+        })
+    return steps
+
+
 def _feasibility_conflict(
     med_id: str,
     slot_time: str,
@@ -879,8 +932,49 @@ def build_schedule(
     unscheduled: list[dict] = []
     moves: list[dict] = []
 
+    kinds: dict[str, str] = {}
+    as_needed: list[dict] = []
+    tapers: list[dict] = []
+    schedule_kind_notes: list[str] = []
+
     for med in active:
         med_id = med.get("id") or med.get("brand_name", "")
+        kind, kind_note = _schedule_kind(med)
+        kinds[med_id] = kind
+        if kind_note:
+            schedule_kind_notes.append(f"{med.get('brand_name', '')}: {kind_note}")
+
+        if kind == "prn":
+            # An as-needed medicine gets NO reminder slot. It is still checked
+            # for interactions; it simply has no time of its own.
+            as_needed.append({
+                "med_id": med.get("id", ""),
+                "med_name": med.get("brand_name", ""),
+                "dose": med.get("dosage") or "as prescribed",
+                "instruction": med.get("instruction", ""),
+                "note": "Taken only when needed, so it has no reminder times.",
+            })
+            continue
+
+        if kind == "taper":
+            steps = _taper_steps(med)
+            tapers.append({
+                "med_id": med.get("id", ""),
+                "med_name": med.get("brand_name", ""),
+                "steps": steps,
+                "note": (
+                    "The dose changes over time. Each step is shown as the "
+                    "prescription stated it; no step is added or merged."
+                    if steps else
+                    "This medicine was marked as a reducing course, but no steps "
+                    "were read from the prescription. Please check it."
+                ),
+            })
+            if steps and steps[0].get("timing"):
+                # The timetable shows the step that is current today; the later
+                # steps stay visible as steps, never flattened into it.
+                med = {**med, "timing": list(steps[0]["timing"])}
+
         doses, preferred = _doses_per_day(med)
         if doses == 0:
             continue
@@ -951,6 +1045,7 @@ def build_schedule(
                     "instruction": m.get("instruction", ""),
                     "ingredients": [i["ingredient_id"] for i in m.get("ingredients", [])],
                     "resolution_confidence": m.get("resolution_confidence", "low"),
+                    "schedule_kind": kinds.get(m.get("id") or m.get("brand_name", ""), "fixed"),
                     "interaction_warning": None,
                 }
                 for m in meds_here
@@ -1012,6 +1107,12 @@ def build_schedule(
         # Medicines held out of the timetable until a person confirms what they
         # are. Never a percentage: "not sure, please check".
         "awaiting_confirmation": awaiting_confirmation,
+        # Medicines taken only when needed: listed, never given reminder times.
+        "as_needed": as_needed,
+        # Reducing courses, with each stated step kept separate.
+        "tapers": tapers,
+        # Anything the engine had to assume about a dosing pattern.
+        "schedule_kind_notes": schedule_kind_notes,
     }
     verification = verify_schedule(schedule, patient_alerts)
     schedule["verification"] = verification

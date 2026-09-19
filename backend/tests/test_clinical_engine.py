@@ -732,3 +732,56 @@ def test_a_low_reading_confidence_also_blocks_scheduling(registry):
     schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
     assert schedule["dose_times"] == []
     assert schedule["awaiting_confirmation"][0]["reason"] == "reading_not_confirmed"
+
+
+# ── S-9: fixed, taper and as-needed dosing ───────────────────────────────────
+
+
+def test_a_prn_medicine_creates_no_reminders(registry):
+    """An as-needed medicine is listed, never given a reminder time."""
+    item = med("m1", "Brufen", timing=["08:00"], schedule_kind="prn")
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    assert schedule["dose_times"] == []
+    assert schedule["unscheduled"] == []
+    assert [a["med_id"] for a in schedule["as_needed"]] == ["m1"]
+    assert "when needed" in schedule["as_needed"][0]["note"]
+
+
+def test_a_taper_step_is_not_flattened_into_one_dose(registry):
+    """A reducing course keeps every stated step; the timetable shows the
+    current step, and the later steps stay visible as steps."""
+    item = med(
+        "m1", "Omnacortil", schedule_kind="taper",
+        taper_steps=[
+            {"dose": "40mg", "duration": "3 days", "timing": ["08:00"]},
+            {"dose": "20mg", "duration": "3 days", "timing": ["08:00"]},
+            {"dose": "10mg", "duration": "3 days", "timing": ["08:00"]},
+        ],
+    )
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    taper = schedule["tapers"][0]
+    assert taper["med_id"] == "m1"
+    assert [s["dose"] for s in taper["steps"]] == ["40mg", "20mg", "10mg"]
+    assert [s["step"] for s in taper["steps"]] == [1, 2, 3]
+    # The timetable holds the current step only - not three doses in one day.
+    times = [d["time"] for d in schedule["dose_times"]]
+    assert times == ["08:00"]
+
+
+def test_an_unknown_schedule_kind_falls_back_to_fixed_and_says_so(registry):
+    item = med("m1", "Brufen", timing=["08:00"], schedule_kind="pulse")
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    entry = schedule["dose_times"][0]["medications"][0]
+    assert entry["schedule_kind"] == "fixed"
+    assert any("pulse" in n for n in schedule["schedule_kind_notes"])
+
+
+def test_a_taper_is_never_invented_for_an_ordinary_medicine(registry):
+    item = med("m1", "Brufen", timing=["08:00"], dosage="400mg", duration="5 days")
+    alerts, _ = check_patient([item], "p1", registry=registry)
+    schedule = build_schedule([item], [a.to_dict() for a in alerts], "p1", registry=registry)
+    assert schedule["tapers"] == []
+    assert schedule["dose_times"][0]["medications"][0]["schedule_kind"] == "fixed"

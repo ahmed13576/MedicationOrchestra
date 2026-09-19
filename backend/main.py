@@ -195,6 +195,9 @@ class MedicationPayload(BaseModel):
     duration: str = Field(default="", max_length=60)
     instruction: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=500)
+    # fixed | taper | prn. Anything else falls back to fixed and is disclosed.
+    schedule_kind: str = Field(default="", max_length=16)
+    taper_steps: list[dict] = Field(default_factory=list, max_length=12)
 
 
 class ConfirmPayload(BaseModel):
@@ -281,6 +284,33 @@ def _clean_fields(data: dict, allowed: set[str], max_len: int = 200) -> dict:
         else:
             out[key] = value
     return out
+
+
+def _clean_taper_steps(raw: object) -> list[dict]:
+    """Sanitise the stated steps of a reducing course.
+
+    Only the stated steps are stored; nothing is filled in from a neighbour,
+    because inventing a step the prescription did not state is a dosing error.
+    """
+    steps: list[dict] = []
+    if not isinstance(raw, list):
+        return steps
+    for index, step in enumerate(raw[:12], start=1):
+        if not isinstance(step, dict):
+            continue
+        steps.append({
+            "step": index,
+            "dose": sanitize_text_input(str(step.get("dose") or step.get("dosage") or ""),
+                                        max_length=80),
+            "duration": sanitize_text_input(str(step.get("duration") or ""), max_length=60),
+            "timing": [
+                sanitize_text_input(str(t), max_length=10)
+                for t in (step.get("timing") or [])[:8] if t
+            ],
+            "instruction": sanitize_text_input(str(step.get("instruction") or ""),
+                                               max_length=200),
+        })
+    return steps
 
 
 def _resolve_for_storage(clean: dict) -> dict:
@@ -559,12 +589,16 @@ async def confirm_medications(
             {k: v for k, v in med.items() if not k.startswith("_")},
             {"brand_name", "generic_name", "dosage", "frequency_raw", "frequency_english",
              "timing", "duration", "condition", "instruction", "notes", "source_type",
-             "total_tablets", "expiry_date", "batch_no", "manufacturer", "confidence"},
+             "total_tablets", "expiry_date", "batch_no", "manufacturer", "confidence",
+             "schedule_kind"},
             max_len=200,
         )
         if not clean.get("brand_name"):
             continue
         clean = _resolve_for_storage(clean)
+        steps = _clean_taper_steps(med.get("taper_steps"))
+        if steps:
+            clean["taper_steps"] = steps
         clean.update({
             "status": "active",
             "source": clean.get("source_type", "photo"),
@@ -590,9 +624,12 @@ async def add_medication_manually(
     med_id = str(uuid.uuid4())
     data = _clean_fields(payload.model_dump(), {
         "brand_name", "generic_name", "dosage", "frequency_raw", "frequency_english",
-        "timing", "duration", "instruction", "notes",
+        "timing", "duration", "instruction", "notes", "schedule_kind",
     })
     data = _resolve_for_storage(data)
+    steps = _clean_taper_steps(payload.taper_steps)
+    if steps:
+        data["taper_steps"] = steps
     data.update({"status": "active", "source": "manual", "source_type": "manual",
                  "created_at": _now()})
 
