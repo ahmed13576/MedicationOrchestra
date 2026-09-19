@@ -158,6 +158,22 @@ With no medications: `count: 0`, `coverage.coverage_percent: 0.0`,
 `is_complete: false`, and `message: "No medications found. Scan or add your
 medicines first."` — never a reassurance.
 
+Notes on an alert:
+
+* `medications[]` lists **only the products that carry the interacting
+  ingredients**. A thyroid tablet that happens to be in the same medicine list is
+  not named on a bleeding-risk alert.
+* `ingredients[]` is the union of the two mechanism groups that triggered the
+  rule, and the alert is keyed by the group pair rather than by the ingredient
+  pair. Warfarin + ibuprofen and warfarin + aspirin are therefore one alert
+  listing all the products involved, not two near-identical ones.
+* `time_gap_hours` is a scheduling constraint, not advice text. Where the rule's
+  own citation names an interval (the aspirin/NSAID rule says 8 hours) the rule
+  declares `min_gap_hours` and that number is what the solver and the verifier
+  enforce; otherwise the severity default applies (major 6 h, moderate 2 h).
+* `rule_id` names the rule in `backend/knowledge/interactions.json`, where the
+  mechanism, the management advice, the source and the citation live.
+
 `language` only rephrases `title`/`detail` through the model, and only if the
 result passes validation (no safety claims, no dropped medicine names, no new
 dose instructions). `severity`, `source`, `citation` and the finding set are

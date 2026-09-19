@@ -588,20 +588,66 @@ def inv_6_schedule(harness: Harness) -> None:
         hour = int(slot["time"][:2])
         for entry in slot["medications"]:
             place.setdefault(entry["med_name"], []).append(hour)
-    separated = all(
-        abs(a - b) >= 8
-        for a in place.get("Ecosprin 75", [])
-        for b in place.get("Brufen 400", [])
-    )
+    aspirin_slots = place.get("Ecosprin 75", [])
+    brufen_slots = place.get("Brufen 400", [])
+    if aspirin_slots and brufen_slots:
+        # Both were placed: the cited 8 hours must actually hold.
+        separated = all(
+            abs(a - b) >= 8 for a in aspirin_slots for b in brufen_slots
+        )
+        detail = f"placed {aspirin_slots} vs {brufen_slots}"
+    else:
+        # One of them could not be placed at all, so nothing false is claimed -
+        # but the schedule must be honest about it rather than quietly dropping
+        # the medicine from a "verified" timetable.
+        separated = gap_schedule["schedule_status"] == "partial" and any(
+            u["med_name"] == "Ecosprin 75" for u in gap_schedule["unscheduled"]
+        )
+        detail = (f"Ecosprin 75 could not be placed inside the cited 8 hours "
+                  f"({gap_schedule['schedule_status']})")
     check(
         "INV-6",
         aspirin_alert is not None
         and aspirin_alert["time_gap_hours"] == 8.0
-        and (separated or gap_schedule["schedule_status"] != "verified"),
+        and separated,
         f"the aspirin/NSAID rule's own 8-hour interval is what the solver enforces "
-        f"(placed {place.get('Ecosprin 75')} vs {place.get('Brufen 400')})",
-        f"the schedule separates them by less than the cited 8 hours: {place}",
+        f"({detail})",
+        f"the timetable separates the aspirin/NSAID pair by less than the cited "
+        f"8 hours, or hides that it could not: {place} / "
+        f"{gap_schedule['schedule_status']}",
     )
+
+    # A medicine that cannot be placed is reported once, with a reason the user
+    # can act on, and the schedule says it is partial rather than verified.
+    tight_profile = harness.add_profile()
+    harness.add_medication(tight_profile, "Warfarin 5mg", dosage="5mg",
+                           frequency_raw="OD", timing=["20:00"])
+    harness.add_medication(tight_profile, "Brufen 400", dosage="400mg",
+                           frequency_raw="BD", timing=["08:00", "20:00"])
+    harness.add_medication(tight_profile, "Combiflam", dosage="1 tab",
+                           frequency_raw="BD", timing=["08:00", "20:00"])
+    tight = harness.schedule(tight_profile)["schedules"][0]
+    if tight["unscheduled"]:
+        names = [u["med_name"] for u in tight["unscheduled"]]
+        check(
+            "INV-6", len(names) == len(set(names)),
+            f"each unplaceable medicine is reported once: {sorted(set(names))}",
+            f"a medicine is listed more than once in unscheduled: {names}",
+        )
+        explained = {
+            c["medications"][0] for c in tight["conflicts"]
+            if c.get("reason") == "no_safe_slot_available" and c.get("message")
+        }
+        check(
+            "INV-6", set(names) <= explained,
+            "every unplaceable medicine has a conflict entry with a reason",
+            f"unplaceable medicines without an explanation: {sorted(set(names) - explained)}",
+        )
+        check(
+            "INV-6", tight["schedule_status"] == "partial",
+            "the schedule reports itself as partial",
+            f"a schedule with unplaceable doses claims {tight['schedule_status']}",
+        )
 
     # An alert must name the medicines that interact, not everything in the list.
     bystander_profile = harness.add_profile()

@@ -39,9 +39,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   /// will remind you".
   int _remindersScheduled = 0;
 
-  /// Doses the solver could not place without breaking a required gap, and the
-  /// solver's own status for the whole schedule. A timetable that silently
-  /// omits a medicine is worse than no timetable, so both are rendered.
+  /// Medicines the solver could not place anywhere without breaking a required
+  /// gap (one entry each, however many of their doses failed), and the solver's
+  /// own status for the whole schedule. A timetable that silently omits a
+  /// medicine is worse than no timetable, so both are rendered.
   List<Map<String, dynamic>> _unscheduled = [];
   String _scheduleStatus = '';
 
@@ -415,7 +416,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '${_unscheduled.length} dose(s) could not be placed safely',
+                        '${_unscheduled.length} medicine(s) could not be placed safely',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           color: Colors.red.shade900,

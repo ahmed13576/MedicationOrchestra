@@ -24,14 +24,14 @@ because it is fixable in days and it is the difference between "demo" and "produ
 
 ## Fix status (updated after the remediation pass)
 
-The audit command in §0 now exits **0**: `43/43` checks hold, and the test-suite
-is `137 passed`. The table below is the honest ledger of what changed and what
+The audit command in §0 now exits **0**: `46/46` checks hold, and the test-suite
+is `140 passed`. The table below is the honest ledger of what changed and what
 still has not.
 
 | # | Finding | Status | Evidence |
 |---|---|---|---|
 | F-01 | Interaction engine has no data in the deployed artifact | **Fixed** | knowledge base moved into `backend/knowledge/`, shipped by `Dockerfile` (`COPY knowledge/` + a build-time load check), `.dockerignore` no longer excludes it, `/readyz` gates on it, CI builds the image and proves the corpus is inside, plus a check that the service refuses to start without it. INV-1. |
-| F-02 | "6-hour gap" is a prompt, not a constraint | **Fixed** | the model no longer schedules. `clinical_engine.build_schedule()` is a deterministic solver, and `verify_schedule()` independently re-checks the finished payload; a disagreement downgrades the result to `unsafe_conflict`. INV-6, `tests/test_clinical_engine.py`. |
+| F-02 | "6-hour gap" is a prompt, not a constraint | **Fixed** | the model no longer schedules. `clinical_engine.build_schedule()` is a deterministic solver, and `verify_schedule()` independently re-checks the finished payload; a disagreement downgrades the result to `unsafe_conflict`. Where a rule's own citation names an interval it declares `min_gap_hours` and the solver enforces that instead of a severity default — the aspirin/NSAID rule says 8 hours, and the schedule now says 8 hours. INV-6, `tests/test_clinical_engine.py`. |
 | F-03 | Substring drug identity | **Fixed** | exact-match registry (`resolve_medication`), no fuzzy path; `cortisone ≠ hydrocortisone`, `ampicillin ≠ pivampicillin`, real `aspirin + clopidogrel` now found. Each rule also declares the mechanism groups it connects and only fires across two of them, so two NSAIDs no longer produce an "SSRI + NSAID" alert. INV-3, `tests/test_drug_identity.py`. |
 | F-04 | "Couldn't read this tablet" rendered as "you are safe" | **Fixed** | coverage ledger on every response; `unchecked[]` names each medicine and why; the client shows an amber "not fully checked" panel unless `is_complete`. INV-2/INV-4, `test_empty_household_never_claims_safety`. |
 | F-05 | Duplicate-salt harm invisible | **Fixed** | duplicate-ingredient and dose-ceiling alerts with per-product and per-day arithmetic plus a citation; 4 ingredients carry explicit ceilings. INV-5. |
@@ -40,7 +40,7 @@ still has not.
 | F-08 | Security and abuse posture | **Mostly fixed** | MIME sniffing + size/pixel caps + EXIF stripping; sanitisation that keeps legitimate names; per-user rate limits; explicit CORS; `python-multipart` 0.0.32 (CVE-2024-53981); non-root container; no secrets in the image. Remaining: no pen-test; rate limits are in-process. |
 | F-09 | Regulatory and privacy posture empty | **Partly fixed** | versioned consent + `consent_history`, audit trail on every health-data access, export and confirmed deletion, rules that deny client writes. Remaining: published privacy notice, grievance officer, breach runbook, consent-manager integration — listed in `docs/SECURITY_AND_PRIVACY.md` §8. |
 | F-10 | Cache correctness | **Fixed** | the server no longer caches clinical answers at all — the functions that did were never called, and a cached answer has three ways to go quietly stale (rule corrected, medicine added, alert acknowledged), so they were deleted rather than wired up. The client keeps the only cache, it is keyed per profile, it stores the coverage ledger and the unchecked list alongside the alerts, and a legacy cache without a ledger renders as "not fully checked" instead of as all-clear. |
-| F-11 | No tests, no CI, no evaluation harness | **Fixed** | 137 tests (in-memory Firestore, no credentials), 43 executed invariant checks, and `.github/workflows/ci.yml` running ruff, pip-audit, the invariant audit, pytest, a knowledge-base integrity check and a container build. Remaining: no evaluation corpus for extraction accuracy. |
+| F-11 | No tests, no CI, no evaluation harness | **Fixed** | 140 tests (in-memory Firestore, no credentials), 46 executed invariant checks, and `.github/workflows/ci.yml` running ruff, pip-audit, the invariant audit, pytest, a knowledge-base integrity check and a container build. Remaining: no evaluation corpus for extraction accuracy. |
 | F-12 | Dependency drift, dead weight, one live CVE | **Mostly fixed** | every pin exact and current (fastapi 0.141.1, pillow 12.3.0, firebase-admin 7.6.0, python-multipart 0.0.32); `google-cloud-aiplatform` removed; `Pillow` is now genuinely used. Remaining: `flutter_local_notifications` 17.x stayed put because the bump cannot be verified without a device build. |
 | F-13 | Cost and latency structurally bad | **Partly fixed** | the decision path makes zero model calls; the vision path is rate-limited; the schedule is computed locally in milliseconds; the DDI corpus no longer needs indexing. Remaining: no load test, no per-household COGS telemetry. |
 | F-14 | Delivery gaps between pitch and app | **Fixed** | `README.md` rewritten to describe the system that exists; the ADK agents that described non-existent orchestration were deleted; the manifest no longer advertises ADK; the client no longer claims an AI built the schedule, the SOS button works, and the dose reminders it announces are actually scheduled on the phone. |
@@ -621,6 +621,9 @@ is the whole month's credits in an afternoon.
 15. Privacy policy, ToS, consent capture, deletion/export, retention schedule, `asia-south1`. *(F-09)*
 16. One-command Linux/macOS deploy (or Terraform), staging environment, `flutterfire configure` in the
     README, delete the committed `session.db` and the framework scaffolding. *(F-14, F-15)*
+    — **done for the deploy script** (`deploy.sh`, same gates as `deploy.ps1`, both
+    smoke-tested and pinned by `tests/test_deployment_scripts.py`) and for the
+    scaffolding; a staging environment is still open.
 
 **Definition of done for "we can talk to a hospital":** a red-team report showing 0% false negatives on
 the gold set, a coverage ledger on every screen, a verified (not prompted) schedule, an audit trail of

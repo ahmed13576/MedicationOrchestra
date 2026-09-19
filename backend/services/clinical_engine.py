@@ -706,13 +706,13 @@ def build_schedule(
                     chosen = candidate
                     break
             if chosen is None:
-                unscheduled.append({
-                    "med_id": med_id,
-                    "med_name": med.get("brand_name", ""),
-                    "reason": "no_safe_slot_available",
-                    "dose_index": dose_index + 1,
-                    "preferred_time": preferred_time or "",
-                })
+                # One entry per medicine, not per dose: the client counts these
+                # entries, and a twice-daily medicine with nowhere to go is one
+                # problem. The "x of y doses" detail lives in `conflicts`.
+                _record_unscheduled(
+                    unscheduled, med_id, med.get("brand_name", ""),
+                    dose_index + 1, preferred_time or "",
+                )
                 continue
             placed.append(chosen)
             assignments.setdefault(med_id, []).append(chosen)
@@ -730,13 +730,10 @@ def build_schedule(
                 })
 
         if not placed:
-            unscheduled.append({
-                "med_id": med_id,
-                "med_name": med.get("brand_name", ""),
-                "reason": "no_safe_slot_available",
-                "dose_index": 1,
-                "preferred_time": preferred[0] if preferred else "",
-            })
+            _record_unscheduled(
+                unscheduled, med_id, med.get("brand_name", ""), 1,
+                preferred[0] if preferred else "",
+            )
 
     dose_times = []
     for slot_time in DEFAULT_SLOT_TIMES:
@@ -775,8 +772,13 @@ def build_schedule(
                 )
 
     safety_notes, conflicts = _safety_notes(patient_alerts, dose_times, unscheduled)
+    scheduled_ids = set(assignments)
     for move in moves:
-        reason = _move_reason(move["med_id"], patient_alerts)
+        # A move note explains what the dose was moved *away from*. A medicine
+        # that could not be placed at all is reported in `unscheduled`, so naming
+        # it here would read as "keep 6 hours from Ecosprin" when Ecosprin is not
+        # in the schedule at all.
+        reason = _move_reason(move["med_id"], patient_alerts, scheduled_ids)
         safety_notes.append(
             f"{move['med_name']} (dose {move['dose_index']}) was moved from "
             f"{move['from']} to {move['to']}{reason}."
@@ -834,14 +836,26 @@ def build_schedule(
 
 
 
-def _move_reason(med_id: str, alerts: list[dict]) -> str:
-    """Human-readable reason a dose was moved, from the alert that forced it."""
+def _move_reason(
+    med_id: str, alerts: list[dict], scheduled_ids: set[str] | None = None
+) -> str:
+    """Human-readable reason a dose was moved, from the alert that forced it.
+
+    `scheduled_ids`, when given, restricts the explanation to the medicines that
+    are actually in the timetable.
+    """
     for alert in alerts:
         if med_id in (alert.get("med_ids") or []):
             ids = alert.get("med_ids") or []
             names = alert.get("medications") or []
             # Report the *other* medicines, not the one being moved.
             others = [n for n, i in zip(names, ids, strict=False) if i != med_id] or names
+            if scheduled_ids is not None:
+                placed = [
+                    n for n, i in zip(names, ids, strict=False) if i in scheduled_ids
+                ]
+                if placed:
+                    others = placed
             if alert.get("kind") in ("duplicate_ingredient", "dose_ceiling"):
                 return (
                     " because it contains the same active ingredient as another medicine "
@@ -861,6 +875,32 @@ def _slot_label(slot: str) -> str:
         "20:00": "Night (with dinner)",
         "22:00": "Bedtime",
     }.get(slot, f"Dose at {slot}")
+
+
+def _record_unscheduled(
+    unscheduled: list[dict],
+    med_id: str,
+    med_name: str,
+    dose_index: int,
+    preferred_time: str,
+) -> None:
+    """Record that a medicine's dose could not be placed, once per medicine.
+
+    A medicine that cannot be placed is one problem for the person reading the
+    schedule, however many of its doses failed, and the client counts the entries
+    in `unscheduled`. Entries are keyed by medicine and keep the first failing
+    dose, which is the one the user would have taken first.
+    """
+    for item in unscheduled:
+        if item["med_id"] == med_id:
+            return
+    unscheduled.append({
+        "med_id": med_id,
+        "med_name": med_name,
+        "reason": "no_safe_slot_available",
+        "dose_index": dose_index,
+        "preferred_time": preferred_time,
+    })
 
 
 def _safety_notes(
@@ -949,7 +989,6 @@ def _safety_notes(
     for entry in by_med.values():
         times = ", ".join(t for t in entry["preferred_times"] if t)
         conflicts.append({
-            "alert_id": "",
             "severity": "major",
             "required_gap_hours": 0,
             "medications": [entry["med_name"]],

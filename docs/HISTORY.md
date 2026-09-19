@@ -49,4 +49,4 @@ intake and the Flutter UI — were kept.
 ## Deleted: `sanity_check.py`
 
 It scanned `main.py` for undefined names. Ruff (`F821`) does that for the whole
-backend, on every push, alongside 137 tests and the safety invariant audit.
+backend, on every push, alongside 140 tests and the safety invariant audit.

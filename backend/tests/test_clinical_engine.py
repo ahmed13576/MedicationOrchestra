@@ -420,3 +420,60 @@ def test_declared_gaps_are_positive_and_used_by_the_solver(registry):
             assert gap == 0.0, "scheduling cannot separate a contraindicated pair"
     for severity, gap in DEFAULT_TIME_GAPS.items():
         assert gap >= 0, severity
+
+
+# ── Reporting what the solver could not place ─────────────────────────────────
+
+def test_unscheduled_medicine_is_reported_once_not_once_per_dose(registry):
+    """A twice-daily medicine with nowhere to go is one problem, not two, and the
+    client displays `len(unscheduled)`. Counting it twice would tell a caregiver
+    that three doses failed when two medicines did."""
+    from services.clinical_engine import build_schedule
+
+    meds = [
+        med("m1", "Warf", dosage="5mg", frequency_raw="OD", timing=["20:00"]),
+        med("m2", "Brufen", dosage="400mg", frequency_raw="BD", timing=["08:00", "20:00"]),
+        med("m3", "Ecosprin", dosage="75mg", frequency_raw="BD", timing=["08:00", "20:00"]),
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    if schedule["unscheduled"]:
+        names = [u["med_name"] for u in schedule["unscheduled"]]
+        assert len(names) == len(set(names)), f"a medicine was reported twice: {names}"
+        assert schedule["schedule_status"] == "partial"
+
+
+def test_a_move_note_never_names_a_medicine_that_is_not_in_the_schedule(registry):
+    """The note explains what a dose was moved away from; naming a medicine that
+    was itself left out reads as advice about a medicine the user cannot find."""
+    from services.clinical_engine import build_schedule
+
+    meds = [
+        med("m1", "Warf", dosage="5mg", frequency_raw="OD", timing=["20:00"]),
+        med("m2", "Brufen", dosage="400mg", frequency_raw="BD", timing=["08:00", "20:00"]),
+        med("m3", "Ecosprin", dosage="75mg", frequency_raw="OD", timing=["08:00"]),
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    placed = {m["med_name"] for slot in schedule["dose_times"] for m in slot["medications"]}
+    left_out = {u["med_name"] for u in schedule["unscheduled"]}
+    for note in schedule["safety_notes"]:
+        for name in left_out - placed:
+            assert name not in note, f"a dropped medicine is named in a note: {note}"
+
+
+def test_every_dropped_medicine_has_a_conflict_entry_with_a_reason(registry):
+    from services.clinical_engine import build_schedule
+
+    meds = [
+        med("m1", "Warf", dosage="5mg", frequency_raw="OD", timing=["20:00"]),
+        med("m2", "Brufen", dosage="400mg", frequency_raw="BD", timing=["08:00", "20:00"]),
+        med("m3", "Combiflam", dosage="1 tab", frequency_raw="BD", timing=["08:00", "20:00"]),
+    ]
+    alerts, _ = check_patient(meds, "p1", registry=registry)
+    schedule = build_schedule(meds, [a.to_dict() for a in alerts], "p1", registry=registry)
+    explained = {c["medications"][0] for c in schedule["conflicts"]
+                 if c.get("reason") == "no_safe_slot_available"}
+    assert {u["med_name"] for u in schedule["unscheduled"]} <= explained
+    for conflict in schedule["conflicts"]:
+        assert conflict["message"], conflict
