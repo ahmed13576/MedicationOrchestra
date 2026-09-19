@@ -141,13 +141,26 @@ any violation. The ten invariants:
 ## Cloud Run deployment
 
 ```powershell
-.\deploy.ps1
+.\deploy.ps1 -ProjectId my-project-123          # project, region and names are parameters
 ```
-Sets up the service account and roles (`datastore.user`, `aiplatform.user`,
-`firebaseauth.admin`, `logging.logWriter`), builds via Cloud Build, deploys to
-Cloud Run with `DEV_MODE=false`, then polls `/readyz`. Deploy with
-`ALLOWED_ORIGINS` set to your real origins — the API refuses wildcard CORS with
-credentials.
+
+It takes the project from `-ProjectId`, `$env:GOOGLE_CLOUD_PROJECT`, or your
+`gcloud config` — nothing is hardcoded. It creates the service account and grants
+the roles the service actually uses (`datastore.user`, `aiplatform.user`,
+`firebaseauth.admin`, `firebasecloudmessaging.admin`, `logging.logWriter`),
+builds via Cloud Build, deploys with `DEV_MODE=false` and `PROJECT_ID` set, then
+**smoke-tests what it deployed**:
+
+1. `/health` reports a plausible knowledge base (ingredients, rules, review status);
+2. `/readyz` is ready;
+3. `/api/v1/profiles` with an invalid token returns 401.
+
+Any of those failing makes the script exit non-zero and print the log command —
+a deployment that cannot make a clinical judgement is reported as a failure, not
+as success. Use `-SkipSmokeTest` only when you intend to run the checks yourself.
+The API is public unless you pass `-AllowUnauthenticated` explicitly (Firebase
+auth still guards every endpoint); set `ALLOWED_ORIGINS` for browser clients,
+which are denied by default outside localhost.
 
 ---
 
