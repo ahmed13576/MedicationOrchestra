@@ -801,6 +801,87 @@ FREQUENCY_SLOTS: dict[str, tuple[int, tuple[int, ...]]] = {
 _BEFORE_MEALS = ("ac", "before food", "before meals", "empty stomach", "before breakfast")
 _AFTER_MEALS = ("pc", "after food", "after meals", "after breakfast", "after dinner")
 
+#: S-6 - the meal relations the scheduler understands. Anything else is
+#: disclosed as unrecognised; the scheduler never guesses what it meant.
+FOOD_RELATIONS = ("before_food", "after_food", "with_food", "empty_stomach")
+
+_FOOD_RELATION_SYNONYMS = {
+    "ac": "before_food",
+    "before food": "before_food",
+    "before meals": "before_food",
+    "before meal": "before_food",
+    "before breakfast": "before_food",
+    "pc": "after_food",
+    "after food": "after_food",
+    "after meals": "after_food",
+    "after meal": "after_food",
+    "with food": "with_food",
+    "with meals": "with_food",
+    "with meal": "with_food",
+    "empty stomach": "empty_stomach",
+    "on an empty stomach": "empty_stomach",
+    "fasting": "empty_stomach",
+}
+
+#: How far from a meal a slot may sit and still satisfy the relation.
+_FOOD_WINDOW_MINUTES = 90
+#: How far a dose must sit from every meal to count as an empty stomach.
+_EMPTY_STOMACH_MINUTES = 120
+
+
+def _food_relation(med: dict) -> tuple[str, str]:
+    """(relation, note). An unrecognised value yields ("", note) - never a guess."""
+    raw = str(med.get("food_relation") or "").strip().lower()
+    if not raw:
+        # Fall back to the instruction text the prescription actually carried.
+        text = " ".join(
+            str(med.get(k) or "") for k in ("instruction", "timing_raw", "frequency_raw")
+        ).strip().lower()
+        for phrase, relation in _FOOD_RELATION_SYNONYMS.items():
+            if phrase and phrase in text:
+                return relation, ""
+        return "", ""
+    key = re.sub(r"\s+", " ", raw)
+    if key in FOOD_RELATIONS:
+        return key, ""
+    if key in _FOOD_RELATION_SYNONYMS:
+        return _FOOD_RELATION_SYNONYMS[key], ""
+    return "", (
+        f"\"{raw}\" is not a food instruction this system understands, so the "
+        "dose times were not adjusted for it. Please check it."
+    )
+
+
+def _clean_meal_times(meal_times: dict | None) -> dict[str, str]:
+    """Only real HH:MM meal times count. Nothing here is ever invented."""
+    out: dict[str, str] = {}
+    for meal, value in (meal_times or {}).items():
+        text = str(value or "").strip()
+        if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", text):
+            out[str(meal)] = text
+    return out
+
+
+def _food_relation_ok(relation: str, slot: str, meals: dict[str, str]) -> bool:
+    """Does this slot satisfy the meal relation, given the household's meal times?
+
+    With no stated meal times there is no answer, so the caller reports the
+    relation as unmet rather than defaulting a dose to breakfast.
+    """
+    if not relation or not meals:
+        return False
+    slot_min = _minutes(slot)
+    distances = [abs(slot_min - _minutes(t)) for t in meals.values()]
+    if relation == "empty_stomach":
+        return all(d >= _EMPTY_STOMACH_MINUTES for d in distances)
+    if relation == "with_food":
+        return any(d <= 30 for d in distances)
+    if relation == "before_food":
+        return any(0 < (_minutes(t) - slot_min) <= _FOOD_WINDOW_MINUTES for t in meals.values())
+    if relation == "after_food":
+        return any(0 < (slot_min - _minutes(t)) <= _FOOD_WINDOW_MINUTES for t in meals.values())
+    return False
+
 
 def _minutes(hhmm: str) -> int:
     hours, _, minutes = hhmm.partition(":")
@@ -957,6 +1038,7 @@ def build_schedule(
     alerts: list[dict],
     profile_id: str,
     registry: MedicationRegistry | None = None,
+    meal_times: dict | None = None,
 ) -> dict:
     """Construct a dose schedule deterministically, honouring severity gaps.
 
@@ -1062,6 +1144,11 @@ def build_schedule(
     unscheduled: list[dict] = []
     moves: list[dict] = []
 
+    meals = _clean_meal_times(meal_times)
+    food_relations: dict[str, str] = {}
+    food_relation_unmet: list[dict] = []
+    food_relation_notes: list[str] = []
+
     kinds: dict[str, str] = {}
     as_needed: list[dict] = []
     tapers: list[dict] = []
@@ -1105,6 +1192,11 @@ def build_schedule(
                 # steps stay visible as steps, never flattened into it.
                 med = {**med, "timing": list(steps[0]["timing"])}
 
+        relation, relation_note = _food_relation(med)
+        food_relations[med_id] = relation
+        if relation_note:
+            food_relation_notes.append(f"{med.get('brand_name', '')}: {relation_note}")
+
         doses, preferred = _doses_per_day(med)
         if doses == 0:
             continue
@@ -1119,6 +1211,12 @@ def build_schedule(
                 candidates.append(preferred_time)
             candidates.extend(t for t in preferred if t not in candidates)
             candidates.extend(t for t in DEFAULT_SLOT_TIMES if t not in candidates)
+
+            # S-6: a meal relation may move a dose, but only when the household
+            # has told us when it eats. Slots that satisfy the relation are
+            # tried first; safety constraints still decide.
+            if relation and meals:
+                candidates.sort(key=lambda c: not _food_relation_ok(relation, c, meals))
 
             chosen = None
             for candidate in candidates:
@@ -1136,6 +1234,26 @@ def build_schedule(
                 continue
             placed.append(chosen)
             assignments.setdefault(med_id, []).append(chosen)
+            if relation and not _food_relation_ok(relation, chosen, meals):
+                food_relation_unmet.append({
+                    "med_id": med.get("id", ""),
+                    "med_name": med.get("brand_name", ""),
+                    "dose_index": dose_index + 1,
+                    "time": chosen,
+                    "food_relation": relation,
+                    "reason": (
+                        "meal_times_unknown" if not meals else "no_slot_matched_the_meal"
+                    ),
+                    "note": (
+                        "This medicine should be taken "
+                        f"{relation.replace('_', ' ')}, but we do not know when "
+                        "this household eats, so the time was not adjusted for it."
+                        if not meals else
+                        "This medicine should be taken "
+                        f"{relation.replace('_', ' ')}, but no safe time today "
+                        "matched a mealtime."
+                    ),
+                })
             if chosen != preferred_time:
                 logger.info(
                     "Schedule: dose %d of %s moved %s -> %s to keep the medicines safe",
@@ -1176,6 +1294,13 @@ def build_schedule(
                     "ingredients": [i["ingredient_id"] for i in m.get("ingredients", [])],
                     "resolution_confidence": m.get("resolution_confidence", "low"),
                     "schedule_kind": kinds.get(m.get("id") or m.get("brand_name", ""), "fixed"),
+                    "food_relation": food_relations.get(
+                        m.get("id") or m.get("brand_name", ""), ""
+                    ),
+                    "food_relation_met": _food_relation_ok(
+                        food_relations.get(m.get("id") or m.get("brand_name", ""), ""),
+                        slot_time, meals,
+                    ),
                     "interaction_warning": None,
                 }
                 for m in meds_here
@@ -1241,6 +1366,11 @@ def build_schedule(
         # Medicines held out of the timetable until a person confirms what they
         # are. Never a percentage: "not sure, please check".
         "awaiting_confirmation": awaiting_confirmation,
+        # Meal instructions the timetable could not honour - reported, never
+        # pretended. Meal times are never inferred from the time of day.
+        "food_relation_unmet": food_relation_unmet,
+        "food_relation_notes": food_relation_notes,
+        "meal_times": meals,
         # Medicines withheld from the timetable because of a recorded allergy.
         "blocked_medications": blocked_medications,
         # Medicines taken only when needed: listed, never given reminder times.

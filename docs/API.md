@@ -234,6 +234,20 @@ default), `taper` (a reducing course, with the stated steps in `taper_steps`) or
 current step only, and no step is invented or merged. An unrecognised value falls
 back to `fixed` and is disclosed in `schedule_kind_notes`.
 
+### Meal times and food instructions
+
+`POST /api/v1/profiles/{profile_id}/meal-times` body `{ "breakfast": "08:00",
+"lunch": "13:00", "dinner": "20:00" }`.
+
+A medication may carry `food_relation`: `before_food`, `after_food`,
+`with_food` or `empty_stomach`. The scheduler prefers a slot that satisfies the
+relation, but only when the household has stated its meal times; meal times are
+never inferred from the time of day. Every dose entry reports `food_relation`
+and `food_relation_met`, and anything the timetable could not honour is listed in
+`schedule.food_relation_unmet` with the reason (`meal_times_unknown` or
+`no_slot_matched_the_meal`). An unrecognised food instruction is disclosed in
+`schedule.food_relation_notes` and never guessed at.
+
 ### Allergies
 
 `GET /api/v1/profiles/{profile_id}/allergies` -> `{ "allergies": [ ... ], "count": n }`

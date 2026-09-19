@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -191,6 +192,13 @@ class AllergyPayload(BaseModel):
     ingredient_id: str = Field(default="", max_length=80)
 
 
+class MealTimesPayload(BaseModel):
+    """When this household actually eats. Never inferred, only stated."""
+    breakfast: str = Field(default="", max_length=5)
+    lunch: str = Field(default="", max_length=5)
+    dinner: str = Field(default="", max_length=5)
+
+
 class MedicationPayload(BaseModel):
     profile_id: str = Field(min_length=1, max_length=64)
     brand_name: str = Field(min_length=1, max_length=120)
@@ -204,6 +212,9 @@ class MedicationPayload(BaseModel):
     notes: str = Field(default="", max_length=500)
     # fixed | taper | prn. Anything else falls back to fixed and is disclosed.
     schedule_kind: str = Field(default="", max_length=16)
+    # before_food | after_food | with_food | empty_stomach. Anything else is
+    # disclosed as unrecognised rather than guessed at.
+    food_relation: str = Field(default="", max_length=24)
     taper_steps: list[dict] = Field(default_factory=list, max_length=12)
 
 
@@ -370,6 +381,15 @@ def _profile_names(user_id: str) -> dict[str, str]:
             doc.id: (doc.to_dict() or {}).get("name", "")
             for doc in _user_ref(user_id).collection("profiles").stream()
         }
+    except Exception:
+        return {}
+
+
+def _meal_times(user_id: str, profile_id: str) -> dict:
+    """Stated meal times for a profile, or nothing. Never a default."""
+    try:
+        doc = _profile_ref(user_id, profile_id).get()
+        return (doc.to_dict() or {}).get("meal_times") or {} if doc.exists else {}
     except Exception:
         return {}
 
@@ -626,7 +646,7 @@ async def confirm_medications(
             {"brand_name", "generic_name", "dosage", "frequency_raw", "frequency_english",
              "timing", "duration", "condition", "instruction", "notes", "source_type",
              "total_tablets", "expiry_date", "batch_no", "manufacturer", "confidence",
-             "schedule_kind"},
+             "schedule_kind", "food_relation"},
             max_len=200,
         )
         if not clean.get("brand_name"):
@@ -661,6 +681,7 @@ async def add_medication_manually(
     data = _clean_fields(payload.model_dump(), {
         "brand_name", "generic_name", "dosage", "frequency_raw", "frequency_english",
         "timing", "duration", "instruction", "notes", "schedule_kind",
+        "food_relation",
     })
     data = _resolve_for_storage(data)
     steps = _clean_taper_steps(payload.taper_steps)
@@ -720,6 +741,29 @@ async def remove_profile(
     audit_service.record(user_id, audit_service.EVENT_DELETION, profile_id=profile_id,
                          detail={"action": "profile_deleted"})
     return {"deleted": profile_id}
+
+
+@app.post("/api/v1/profiles/{profile_id}/meal-times")
+async def set_meal_times(
+    profile_id: str,
+    payload: MealTimesPayload,
+    user_id: str = Depends(verify_firebase_token),
+):
+    """Record when this household eats, so meal instructions can be honoured.
+
+    Without this the scheduler reports a meal instruction as unmet; it never
+    assumes a breakfast time.
+    """
+    if not _profile_ref(user_id, profile_id).get().exists:
+        raise HTTPException(404, "Profile not found")
+    meals = {
+        k: v for k, v in payload.model_dump().items()
+        if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(v or "").strip())
+    }
+    _profile_ref(user_id, profile_id).set({"meal_times": meals}, merge=True)
+    audit_service.record(user_id, audit_service.EVENT_MEDICATION_UPDATED,
+                         profile_id=profile_id, detail={"action": "meal_times_set"})
+    return {"profile_id": profile_id, "meal_times": meals}
 
 
 @app.get("/api/v1/profiles/{profile_id}/allergies")
@@ -974,13 +1018,15 @@ async def generate_schedule_endpoint(
         }
 
     names = _profile_names(user_id)
-    check = check_household(meds, names, REGISTRY)
+    check = check_household(meds, names, REGISTRY, _profile_allergies(user_id, profile_id))
     _persist_alerts(user_id, check["alerts"])
 
     schedules = []
     for pid in sorted({m["profile_id"] for m in meds}):
         patient_meds = [m for m in meds if m["profile_id"] == pid]
-        schedule = build_schedule(patient_meds, check["alerts"], pid, REGISTRY)
+        schedule = build_schedule(
+            patient_meds, check["alerts"], pid, REGISTRY, _meal_times(user_id, pid)
+        )
         schedule["patient_name"] = names.get(pid, "")
         _user_ref(user_id).collection("schedules").document(f"{pid}_{_today()}").set({
             **schedule, "generated_at": _now(), "date": _today(),

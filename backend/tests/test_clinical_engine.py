@@ -851,3 +851,50 @@ def test_an_allergy_is_only_applied_to_the_patient_who_recorded_it(registry):
     allergy = [a for a in result["alerts"] if a["kind"] == "allergy"]
     assert len(allergy) == 1
     assert allergy[0]["profile_id"] == "p1"
+
+
+# ── S-6 · Meal relations ─────────────────────────────────────────────────────
+
+
+def test_a_meal_relation_survives_extraction_to_schedule(registry):
+    meds = [med("m1", "Metformin", timing=["13:00"])]
+    meds[0]["food_relation"] = "with_food"
+    schedule = build_schedule(
+        meds, [], "p1", registry=registry,
+        meal_times={"breakfast": "08:00", "lunch": "13:00", "dinner": "20:00"},
+    )
+    entry = schedule["dose_times"][0]["medications"][0]
+    assert entry["food_relation"] == "with_food"
+    assert entry["food_relation_met"] is True
+    assert schedule["food_relation_unmet"] == []
+    assert schedule["meal_times"]["lunch"] == "13:00"
+
+
+def test_an_unmeetable_meal_relation_is_reported_not_ignored(registry):
+    """With no stated meal times, the relation is unmet - never assumed."""
+    meds = [med("m1", "Metformin", timing=["13:00"])]
+    meds[0]["food_relation"] = "with_food"
+    schedule = build_schedule(meds, [], "p1", registry=registry)
+    unmet = schedule["food_relation_unmet"]
+    assert len(unmet) == 1
+    assert unmet[0]["med_id"] == "m1"
+    assert unmet[0]["reason"] == "meal_times_unknown"
+    assert "do not know when" in unmet[0]["note"]
+    assert schedule["dose_times"][0]["medications"][0]["food_relation_met"] is False
+
+
+def test_meal_times_are_never_invented_from_the_time_of_day(registry):
+    meds = [med("m1", "Thyronorm", timing=["08:00"])]
+    meds[0]["food_relation"] = "empty_stomach"
+    schedule = build_schedule(meds, [], "p1", registry=registry)
+    assert schedule["meal_times"] == {}
+    assert schedule["food_relation_unmet"][0]["reason"] == "meal_times_unknown"
+
+
+def test_an_unrecognised_food_instruction_is_disclosed(registry):
+    meds = [med("m1", "Brufen", timing=["08:00"])]
+    meds[0]["food_relation"] = "with a glass of buttermilk"
+    schedule = build_schedule(meds, [], "p1", registry=registry)
+    assert schedule["food_relation_unmet"] == []
+    assert any("buttermilk" in n for n in schedule["food_relation_notes"])
+    assert schedule["dose_times"][0]["medications"][0]["food_relation"] == ""
