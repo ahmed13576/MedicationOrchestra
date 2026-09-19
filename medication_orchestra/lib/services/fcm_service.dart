@@ -60,8 +60,10 @@ class FcmService {
     if (_timezonesReady) return;
     tz_data.initializeTimeZones();
     try {
-      final name = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(name));
+      // flutter_timezone >= 4 returns a TimezoneInfo; the zone name it carries
+      // is what the timezone database is keyed on.
+      final zone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(zone.identifier));
     } catch (e) {
       debugPrint('[FCM] Could not resolve the device timezone ($e); using UTC');
     }
@@ -211,6 +213,8 @@ class FcmService {
         // more reliable across Android OEM battery savers than exact alarms that
         // get killed anyway.
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time, // repeat daily
         payload: 'dose_reminder:${reminder.time}',
       );

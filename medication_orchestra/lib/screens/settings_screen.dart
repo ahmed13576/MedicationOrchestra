@@ -224,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
-                    value: _sosRateLimitHours,
+                    initialValue: _sosRateLimitHours,
                     decoration: const InputDecoration(
                       labelText: 'Minimum Interval',
                       border: OutlineInputBorder(),
