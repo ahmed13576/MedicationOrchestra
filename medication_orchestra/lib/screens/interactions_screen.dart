@@ -89,15 +89,24 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     final pid = widget.profileId;
 
     // ── Step 1: Show local cache immediately (zero latency, works offline) ────
-    final localData = await LocalCacheService.loadInteractions(pid);
-    final localTs   = await LocalCacheService.loadInteractionsCachedAt(pid);
-    if (localData != null && mounted) {
+    // The cache holds the coverage ledger and the unchecked list too, so the
+    // offline screen can still say what was and was not checked. A cache with
+    // no coverage block renders as "not fully checked", never as a green tick.
+    final localEnvelope = await LocalCacheService.loadInteractions(pid);
+    final localTs       = await LocalCacheService.loadInteractionsCachedAt(pid);
+    if (localEnvelope != null && mounted) {
       final parsed = await compute(
         _parseInteractionsList,
-        localData,
+        localEnvelope['interactions'] as List<dynamic>? ?? <dynamic>[],
       );
       setState(() {
         _interactions    = parsed;
+        _coverage        = (localEnvelope['coverage'] as Map?)?.cast<String, dynamic>() ?? {};
+        _unchecked       = (localEnvelope['unchecked'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ??
+            <Map<String, dynamic>>[];
+        _reviewStatus    = (localEnvelope['review_status'] as String?) ?? '';
         _cachedAt        = localTs;
         _loadedFromLocal = true;
         _isLoading       = false;
@@ -127,8 +136,14 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
               .toList() ??
           <Map<String, dynamic>>[];
 
-      // ── Step 3: Persist fresh data to local cache ─────────────────────────
-      await LocalCacheService.saveInteractions(pid, rawList as List<dynamic>? ?? []);
+      // ── Step 3: Persist fresh data to local cache (with the ledger) ───────
+      await LocalCacheService.saveInteractions(
+        pid,
+        rawList as List<dynamic>? ?? [],
+        coverage: coverage,
+        unchecked: unchecked,
+        reviewStatus: data['review_status'] as String?,
+      );
 
       if (mounted) {
         setState(() {
@@ -144,7 +159,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     } on DioException catch (e) {
       // Network failed — keep local cache visible if we already showed it.
       final detail = e.response?.data?['detail']?.toString() ?? '';
-      if (mounted && localData == null) {
+      if (mounted && localEnvelope == null) {
         // No local cache either — show error.
         setState(() {
           _error = (detail.contains('RESOURCE_EXHAUSTED') || detail.contains('429'))
@@ -160,7 +175,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
       }
       debugPrint('[Interactions] Network error, using local cache: $e');
     } catch (e) {
-      if (mounted && localData == null) {
+      if (mounted && localEnvelope == null) {
         setState(() {
           _error     = 'Unexpected error: $e';
           _isLoading = false;
@@ -330,8 +345,10 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
               children: [
+                // Deliberately not a tick: the tick on this screen means "every
+                // medicine was checked", and a freshness badge must not borrow it.
                 Icon(
-                  _loadedFromLocal ? Icons.wifi_off : Icons.check_circle,
+                  _loadedFromLocal ? Icons.wifi_off : Icons.cloud_done_outlined,
                   size: 14,
                   color: _loadedFromLocal
                       ? Colors.orange.shade700

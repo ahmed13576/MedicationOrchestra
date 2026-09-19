@@ -194,7 +194,7 @@ the finished schedule with an independent checker** before returning it.
   "schedule": { "…": "…" },                    // present only for a single patient
   "interactions": [], "interaction_count": 0, "critical_count": 0,
   "unchecked": [], "coverage": { "…": "…" },
-  "from_cache": false, "model_calls_in_decision_path": 0 }
+  "model_calls_in_decision_path": 0 }
 ```
 `partial` means some prescribed doses could not be placed while honouring every
 required gap — the client shows which, and says so. `unsafe_conflict` means the

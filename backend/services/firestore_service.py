@@ -5,11 +5,17 @@ Firestore data access. All functions are synchronous and are called from async
 handlers through `asyncio.to_thread`, so a blocking Firestore round-trip (or a
 retry inside the SDK) never stalls the event loop.
 
-Cache invalidation is explicit rather than inferred: every write that can change
-a clinical answer bumps `household_updated_at`, and the cached check also
-records the knowledge-base versions that produced it. A knowledge-base update
-therefore invalidates every cached answer, which the previous timestamp-only
-scheme could not do.
+Every write that can change a clinical answer bumps `household_updated_at`, so
+"has anything changed since I last looked" is a single cheap read rather than a
+guess.
+
+There is deliberately no server-side cache of clinical answers. The engine is
+fast (the whole 127-test suite runs in under two seconds), and a cached answer
+has three ways to go quietly wrong: a rule is corrected and the cache is not,
+a new medicine is added and the cache is not, or an alert is acknowledged and
+the cached copy still shows it as new. The client caches the last response for
+offline use, and that cache carries the coverage ledger, so an offline screen
+still says what was *not* checked instead of implying everything was.
 """
 
 from __future__ import annotations
@@ -168,78 +174,6 @@ def touch_household_updated_at(user_id: str) -> None:
         # Logged loudly: if this silently fails, cached clinical answers can
         # outlive the medication list they were computed from.
         logger.error("Firestore: could not bump household_updated_at for %s: %s", user_id, exc)
-
-
-def get_household_updated_at(user_id: str) -> datetime | None:
-    try:
-        doc = db.collection("users").document(user_id).get()
-        if not doc.exists:
-            return None
-        return _aware((doc.to_dict() or {}).get("household_updated_at"))
-    except Exception as exc:
-        logger.warning("Firestore: could not read household_updated_at for %s: %s", user_id, exc)
-        return None
-
-
-def compute_invalidation_key(user_id: str, knowledge_versions: dict) -> str:
-    """Cheap identity for 'the inputs that produced a clinical answer'.
-
-    Combines the medication-change timestamp with the knowledge-base versions,
-    so shipping a corrected rule invalidates every previously cached answer.
-    """
-    stamp = get_household_updated_at(user_id)
-    version_part = ",".join(f"{k}={v}" for k, v in sorted((knowledge_versions or {}).items()))
-    return f"{stamp.isoformat() if stamp else 'unknown'}|{version_part}"
-
-
-def get_cached_interactions(user_id: str, invalidation_key: str) -> dict | None:
-    """Return the cached check if it was produced from the same inputs."""
-    try:
-        doc = (
-            db.collection("users").document(user_id)
-              .collection("interactions").document("latest").get()
-        )
-        if not doc.exists:
-            return None
-        data = doc.to_dict() or {}
-        if data.get("invalidation_key") != invalidation_key:
-            logger.info(
-                "Firestore: interaction cache stale for %s (key mismatch)", user_id
-            )
-            return None
-        return data
-    except Exception as exc:
-        logger.warning("Firestore: cache read failed for %s: %s", user_id, exc)
-        return None
-
-
-def save_cached_interactions(user_id: str, payload: dict, invalidation_key: str) -> None:
-    try:
-        db.collection("users").document(user_id).collection("interactions").document("latest").set({
-            **payload,
-            "invalidation_key": invalidation_key,
-            "generated_at": _utcnow(),
-        })
-    except Exception as exc:
-        logger.warning("Firestore: could not cache interactions for %s: %s", user_id, exc)
-
-
-def get_cached_schedule(user_id: str, date_str: str, invalidation_key: str) -> dict | None:
-    try:
-        doc = (
-            db.collection("users").document(user_id)
-              .collection("schedules").document(date_str).get()
-        )
-        if not doc.exists:
-            return None
-        data = doc.to_dict() or {}
-        if data.get("invalidation_key") != invalidation_key:
-            return None
-        return {k: v for k, v in data.items()
-                if k not in ("generated_at", "date", "invalidation_key")}
-    except Exception as exc:
-        logger.warning("Firestore: schedule cache read failed for %s: %s", user_id, exc)
-        return None
 
 
 # ---------------------------------------------------------------------------

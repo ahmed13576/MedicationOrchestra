@@ -19,6 +19,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingToken = true;
   bool _isSaving = false;
 
+  /// True when the server could not be asked for the current value, so the
+  /// slider shows the default rather than the user's setting. The screen says
+  /// so instead of presenting a default as if it were saved.
+  bool _settingsLoadFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -57,17 +62,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       final data = response.data as Map<String, dynamic>;
-      if (mounted) {
-        setState(() {
-          _sosRateLimitHours = data['sos_rate_limit_hours'] as int;
-        });
-      }
+      final loaded = (data['sos_rate_limit_hours'] as num?)?.toInt();
+      if (!mounted) return;
+      setState(() {
+        if (loaded != null) {
+          _sosRateLimitHours = loaded;
+          _settingsLoadFailed = false;
+        } else {
+          _settingsLoadFailed = true;
+        }
+      });
     } catch (_) {
-      // Fallback to default if load fails
+      // Keep the default visible, but say that it is a default.
+      if (mounted) setState(() => _settingsLoadFailed = true);
     }
   }
 
   Future<void> _saveSettings(int value) async {
+    final previous = _sosRateLimitHours;
     setState(() {
       _isSaving = true;
       _sosRateLimitHours = value;
@@ -81,14 +93,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       if (mounted) {
+        setState(() => _settingsLoadFailed = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Settings saved successfully!')),
+          const SnackBar(content: Text('Settings saved.')),
         );
       }
     } catch (e) {
+      // Put the old value back: a slider that shows a setting the server did
+      // not accept is a lie about how the next SOS will behave.
       if (mounted) {
+        setState(() => _sosRateLimitHours = previous);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save settings: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Could not save settings: '
+                '${e is DioException && e.response?.statusCode == 401 ? 'please sign in again' : e}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -222,6 +242,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _saveSettings(val);
                       }
                     },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _settingsLoadFailed
+                        ? 'Showing the default (2 hours) because your saved setting '
+                            'could not be loaded. Changing it will save it.'
+                        : _isSaving
+                            ? 'Saving…'
+                            : 'Saved on your account.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _settingsLoadFailed
+                          ? Colors.orange.shade900
+                          : Colors.grey.shade700,
+                    ),
                   ),
                 ],
               ),

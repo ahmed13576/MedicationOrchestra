@@ -6,13 +6,19 @@ import '../config/api_config.dart';
 import '../services/fcm_service.dart';
 import '../services/local_cache_service.dart';
 
-/// Displays the AI-generated safe daily medication schedule.
-/// Calls POST /api/v1/schedule/generate which runs the full ADK pipeline:
-/// fetch meds → check interactions → generate conflict-free dose times.
+/// The daily dose timetable, produced by the deterministic solver in
+/// `backend/services/clinical_engine.py` (`POST /api/v1/schedule/generate`) and
+/// independently verified there before it is returned.
+///
+/// This screen shows three things it must never overstate: the timetable, the
+/// doses the solver could *not* place safely, and whether the phone will really
+/// remind the user at each time.
 class ScheduleScreen extends StatefulWidget {
+  /// The patient to schedule for. `'all'` asks the backend for a separate,
+  /// independently verified schedule per patient.
   final String profileId;
 
-  const ScheduleScreen({super.key, this.profileId = 'default'});
+  const ScheduleScreen({super.key, required this.profileId});
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
@@ -27,16 +33,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   List<String> _safetyNotes = [];
   int _interactionCount = 0;
 
-  /// How many OS-level dose reminders were scheduled. If this is 0 the user
-  /// must be told: showing the timetable is not the same promise as the phone
-  /// waking them up for it.
-  int _remindersScheduled = 0;
-
   /// How many OS-level dose reminders were scheduled. Zero while reminders are
   /// unsupported or permission was refused, which the UI must say out loud:
   /// "your dose times are shown here" is not the same promise as "your phone
   /// will remind you".
   int _remindersScheduled = 0;
+
+  /// Doses the solver could not place without breaking a required gap, and the
+  /// solver's own status for the whole schedule. A timetable that silently
+  /// omits a medicine is worse than no timetable, so both are rendered.
+  List<Map<String, dynamic>> _unscheduled = [];
+  String _scheduleStatus = '';
 
   /// Timestamp of the last successful data load (local or network).
   DateTime? _cachedAt;
@@ -168,11 +175,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }) {
     final rawDoseTimes = schedule['dose_times'] as List<dynamic>? ?? [];
     final rawNotes     = schedule['safety_notes'] as List<dynamic>? ?? [];
+    final rawUnscheduled = schedule['unscheduled'] as List<dynamic>? ?? [];
     setState(() {
       _doseTimes = rawDoseTimes
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
       _safetyNotes      = rawNotes.map((e) => e.toString()).toList();
+      _unscheduled      = rawUnscheduled
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      _scheduleStatus   = schedule['schedule_status']?.toString() ?? '';
       _interactionCount = interactionCount;
       _cachedAt         = cachedAt;
       _loadedFromLocal  = fromLocal;
@@ -321,6 +333,39 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ],
             ),
           ),
+        // ── Solver status ─────────────────────────────────────────────────────
+        // 'verified' means an independent pass re-checked every required gap;
+        // 'partial' means at least one dose is in the banner above.
+        if (_scheduleStatus.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(
+                  _scheduleStatus == 'verified'
+                      ? Icons.verified_outlined
+                      : Icons.report_problem_outlined,
+                  size: 14,
+                  color: _scheduleStatus == 'verified'
+                      ? Colors.green.shade700
+                      : Colors.orange.shade800,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _scheduleStatus == 'verified'
+                      ? 'Every dose was placed and re-checked'
+                      : 'Schedule is $_scheduleStatus - see the notes above',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _scheduleStatus == 'verified'
+                        ? Colors.green.shade800
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // ── Interaction warning banner ────────────────────────────────────────
         if (_interactionCount > 0)
           Container(
@@ -343,6 +388,58 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         color: Colors.orange.shade800, fontSize: 13),
                   ),
                 ),
+              ],
+            ),
+          ),
+
+        // ── Doses the solver could not place ──────────────────────────────────
+        // Rendered before anything reassuring: a medicine missing from the
+        // timetable is the most important thing on this screen.
+        if (_unscheduled.isNotEmpty)
+          Container(
+            width: double.infinity,
+            key: const Key('unscheduled_banner'),
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${_unscheduled.length} dose(s) could not be placed safely',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.red.shade900,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ..._unscheduled.map((entry) {
+                  final name = entry['med_name']?.toString() ?? 'A medicine';
+                  final reason = entry['reason']?.toString() ?? '';
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      reason == 'no_safe_slot_available'
+                          ? '$name - no time of day could keep it far enough from '
+                              'the other medicines. Ask your doctor or pharmacist.'
+                          : '$name - $reason',
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade900),
+                    ),
+                  );
+                }),
               ],
             ),
           ),

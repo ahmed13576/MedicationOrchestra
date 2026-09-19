@@ -855,7 +855,6 @@ async def generate_schedule_endpoint(
         "coverage": check["coverage"],
         "knowledge_base": check["knowledge_base"],
         "review_status": check["review_status"],
-        "from_cache": False,
         "model_calls_in_decision_path": 0,
     }
 
