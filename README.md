@@ -210,6 +210,7 @@ docs/                        # API, knowledge sources, security & privacy, histo
 * [docs/KNOWLEDGE_SOURCES.md](docs/KNOWLEDGE_SOURCES.md) — where every clinical claim comes from, and its licence
 * [docs/SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md) — auth, tenancy, consent, audit, DPDP status
 * [HANDOFF.md](HANDOFF.md) — **start here if you are continuing this work**: every remaining production-readiness task, with the test that should pin it and the caveat that will bite
+* [docs/ADVERSARIAL_REVIEW_2.md](docs/ADVERSARIAL_REVIEW_2.md) — the adversarial review of the `handoff/fixes-phase1` branch: what it fixed, and the defects that remain (one critical: a dose outside the five default slot times is dropped without a word while the schedule still says `verified`)
 * [docs/ADVERSARIAL_REVIEW.md](docs/ADVERSARIAL_REVIEW.md) — the review that produced this work, with fix status
 * [docs/YC_PRODUCT_PLAN.md](docs/YC_PRODUCT_PLAN.md) — product, pricing and go-to-market
 

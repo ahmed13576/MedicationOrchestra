@@ -6,6 +6,12 @@
 **Scope:** everything still standing between this codebase and a product that may
 be put in front of a real patient, ordered by what must happen first.
 
+> **Note on the branch.** `handoff/fixes-phase1` implements many of the tasks
+> below. It is reviewed in [`docs/ADVERSARIAL_REVIEW_2.md`](docs/ADVERSARIAL_REVIEW_2.md) —
+> read that before treating anything here as open, and before treating anything
+> there as closed. The counts quoted in this document describe the tree at the
+> commit it was written against, not that branch.
+
 This is a working document, not a status report. Each task has four parts:
 
 * **Why** — the failure this prevents, stated as something that can happen to a
