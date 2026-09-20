@@ -15,7 +15,6 @@ PROJECT_RULES.md
 GSD-STYLE.md
 Screenshot*.png
 db_drug_interactions.csv
-monitoring_dashboard.json
 .env
 
 # Generated clinical corpora. The DrugBank-derived files used to be built here
