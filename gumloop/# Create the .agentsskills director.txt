@@ -1,9 +1,0 @@
-# Create the .agents/skills directory structure for Antigravity 2.0
-Directory structure created:
-  .agents/
-    skills/
-      01-project-setup/
-      02-gemini-vision-intake/
-      03-rag-interaction-checker/
-      04-adk-orchestration-fcm/
-      05-flutter-ui/

@@ -1,0 +1,219 @@
+name: CI
+
+# Every push and every pull request must pass the same gate that runs before a
+# release: the safety invariants, the test-suite, an audit of the dependency
+# tree, and a check that the container actually contains its clinical data.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  # The backend refuses to start without a project id. CI never talks to
+  # Google Cloud — the clients are stubbed in tests/conftest.py — so any
+  # syntactically valid value is enough to prove the configuration path works.
+  PROJECT_ID: "ci-project"
+
+jobs:
+  backend:
+    name: Backend tests and safety invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check . --output-format=github
+
+      - name: Dependency vulnerability audit
+        working-directory: backend
+        run: pip-audit -r requirements.txt --strict --desc
+
+      - name: Safety invariant audit (must exit 0)
+        run: python scripts/safety_invariant_audit.py
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest tests/ -q --maxfail=1
+
+      - name: Clinical knowledge base integrity
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+
+          knowledge = pathlib.Path("knowledge")
+          ingredients = json.loads((knowledge / "ingredients.json").read_text())
+          interactions = json.loads((knowledge / "interactions.json").read_text())
+
+          rules = interactions["rules"]
+          errors = []
+
+          known = set(ingredients["ingredients"])
+          for rule in rules:
+              for field in ("id", "title", "ingredients", "severity", "mechanism",
+                            "management", "source", "citation"):
+                  if not rule.get(field):
+                      errors.append(f"{rule.get('id')}: missing {field}")
+              for ingredient in rule["ingredients"]:
+                  if ingredient not in known:
+                      errors.append(f"{rule['id']}: unknown ingredient {ingredient}")
+
+          # A rule with fewer than two distinct ingredients can never fire.
+          for rule in rules:
+              if len(set(rule["ingredients"])) < 2:
+                  errors.append(f"{rule['id']}: fewer than two ingredients")
+
+          # Every rule must declare at least two mechanism groups, they must be
+          # disjoint, and they must cover the rule's ingredient list. A rule that
+          # fails this either never fires or fires on the wrong patients - the
+          # defect that made the engine report an "SSRI + NSAID" alert for a
+          # patient taking two painkillers.
+          for rule in rules:
+              groups = rule.get("groups") or []
+              if len(groups) < 2:
+                  errors.append(f"{rule['id']}: needs at least two mechanism groups")
+                  continue
+              seen = set()
+              for group in groups:
+                  overlap = seen & set(group)
+                  if overlap:
+                      errors.append(f"{rule['id']}: {sorted(overlap)} appears in two groups")
+                  seen |= set(group)
+              for ingredient in rule["ingredients"]:
+                  if ingredient not in seen:
+                      errors.append(f"{rule['id']}: {ingredient} is in no group")
+
+          # Where a rule names a specific interval in its cited advice, it must
+          # declare it, so the solver enforces the citation rather than a default.
+          for rule in rules:
+              gap = rule.get("min_gap_hours")
+              if gap is not None and (not isinstance(gap, (int, float)) or gap < 0):
+                  errors.append(f"{rule['id']}: min_gap_hours must be a non-negative number")
+
+          # Nothing may be imported from a source whose licence forbids
+          # commercial use (the previous corpus derived from DrugBank).
+          blob = (knowledge / "interactions.json").read_text().lower() + \
+                 (knowledge / "ingredients.json").read_text().lower()
+          if "drugbank" in blob:
+              errors.append("DrugBank-derived data is present in shipped knowledge")
+
+          if interactions["review_status"].lower().find("clinician") == -1:
+              errors.append("review_status does not state the clinical review state")
+
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print(f"OK: {len(rules)} rules, {len(known)} ingredients, all cited")
+          PY
+
+  docker:
+    name: Container builds with its knowledge base
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t medication-orchestra:ci ./backend
+
+      - name: The image must contain a usable knowledge base
+        run: |
+          docker run --rm --entrypoint python medication-orchestra:ci -c "
+          import json
+          from services.medication_registry import get_registry
+          print(json.dumps(get_registry().describe()))
+          "
+          # A container with an empty corpus is the failure this step exists to
+          # catch: it would serve 'no interactions found' to every patient.
+
+      - name: The image must not contain secrets
+        run: |
+          if docker run --rm --entrypoint sh medication-orchestra:ci -c \
+             "ls -a /app | grep -E '^(\.env|service-account\.json)$'"; then
+            echo "::error::a secret file was baked into the image"
+            exit 1
+          fi
+
+      - name: Shell scripts parse
+        run: |
+          set -e
+          for script in ./*.sh; do
+            bash -n "$script"
+          done
+          if command -v shellcheck >/dev/null; then
+            shellcheck --severity=warning ./*.sh
+          else
+            echo "shellcheck is not installed; skipping lints"
+          fi
+
+      - name: Deployment scripts reference files that exist
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          errors = []
+          for script in ("deploy.ps1", "monitoring_setup.ps1"):
+              text = pathlib.Path(script).read_text()
+              for name in re.findall(r'"(monitoring_[a-z_]*\.json)"', text):
+                  if not pathlib.Path(name).exists():
+                      errors.append(f"{script} refers to {name}, which is not in the repository")
+              if re.search(r'project-[0-9a-f]{8}-', text):
+                  errors.append(f"{script} contains a hardcoded project id")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print("deployment scripts reference existing files and no hardcoded project")
+          PY
+
+      - name: The service must refuse to start without a knowledge base
+        run: |
+          set +e
+          docker run --rm --entrypoint sh medication-orchestra:ci -c \
+            "mv /app/knowledge /app/knowledge.bak && python -c 'import sys; sys.path.insert(0, \".\"); import main'" \
+            > /tmp/out 2>&1
+          status=$?
+          cat /tmp/out
+          if [ $status -eq 0 ]; then
+            echo "::error::the service started with no clinical knowledge base"
+            exit 1
+          fi
+
+  flutter:
+    name: Flutter analyse and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: medication_orchestra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test

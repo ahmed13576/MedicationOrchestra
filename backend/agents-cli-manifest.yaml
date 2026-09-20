@@ -1,4 +1,12 @@
 name: medication-orchestra-backend
+# The backend is a plain FastAPI service. It does not use the ADK agent runtime:
+# the clinical decisions are made by a deterministic engine
+# (services/clinical_engine.py) and the model is used only to phrase text
+# (services/explanation_service.py). The previous manifest advertised ADK
+# orchestration that the code did not implement.
+runtime: fastapi
+entrypoint: main:app
+health_check: /readyz
 agent_directory: agents
 create_params:
   deployment_target: cloud_run

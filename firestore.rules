@@ -1,10 +1,64 @@
 rules_version = '2';
+
+// Medication Orchestra — Firestore security rules.
+//
+// Threat model: the mobile client is untrusted. It holds a Firebase ID token,
+// which is enough to reach Firestore directly against the *project* id, so
+// security rules are the only thing standing between a modified client and
+// another user's — or the same user's — clinical record.
+//
+// Design decisions:
+//   * Clients never write. Not their own profile, not their own medicine list.
+//     Every clinical write goes through the backend, which resolves the brand
+//     against the knowledge base, validates the fields, writes an audit entry
+//     and invalidates the cached clinical answer. A client that could write
+//     `medications` directly could quietly remove the drug that raised the
+//     warning. (The Admin SDK used by the backend bypasses these rules.)
+//   * Clients read only what the UI needs, and never the audit trail or the
+//     device token index — those are internal.
+//   * Any unmatched path is denied.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read/write their own data tree
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null 
-        && request.auth.uid == userId;
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Collections the app is allowed to display for the signed-in user.
+    // `audit` is deliberately absent: it is an internal record and is served
+    // only through the backend's export endpoint.
+    function isReadableSubcollection(name) {
+      return name in [
+        'profiles', 'medications', 'schedules', 'interactions', 'alerts',
+        'acknowledged_interactions', 'family_members', 'consent_history'
+      ];
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow write: if false;
+
+      match /{subcollection}/{docId=**} {
+        allow read: if isOwner(userId) && isReadableSubcollection(subcollection);
+        allow write: if false;
+
+        // Defence in depth: even nested under a readable collection, the audit
+        // trail stays closed.
+        match /audit/{entry=**} {
+          allow read, write: if false;
+        }
+      }
+    }
+
+    // Token -> user mapping used for notifications. Never client-visible.
+    match /device_index/{tokenHash} {
+      allow read, write: if false;
+    }
+
+    // Anything not matched above is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

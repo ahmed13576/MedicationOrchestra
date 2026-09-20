@@ -1,178 +1,222 @@
-# 💊 Medication Orchestra — Household Geriatric Medication Safety Agent
+# 💊 Medication Orchestra — household medication safety
 
-**Track:** Concierge Agents | **Stack:** Flutter (Client) + FastAPI / Google ADK (Backend) + Vertex AI RAG
+**Stack:** Flutter (client) + FastAPI (backend) + a deterministic clinical rule
+engine + Vertex AI Gemini for *reading* and *phrasing* only.
 
-*"Photograph your prescriptions. The agent reads them, checks for dangerous interactions across your whole household, tells you the safe time gap between conflicting medicines, and alerts your family if something goes wrong."*
-
----
-
-## 📖 Table of Contents
-1. [Project Overview](#-project-overview)
-2. [The Real-World DDI Problem](#-the-real-world-ddi-problem)
-3. [Multi-Agent Architecture (Google ADK)](#-multi-agent-architecture-google-adk)
-4. [Security & Injection Safeguards](#-security--injection-safeguards)
-5. [Repository Structure](#-repository-structure)
-6. [Local Development Setup](#-local-development-setup)
-7. [Cloud Run Deployment Setup](#-cloud-run-deployment-setup)
-8. [GCP Observability & Monitoring](#-gcp-observability--monitoring)
+> Photograph a prescription or a medicine strip. The app reads it, identifies the
+> active ingredients, checks them against a curated interaction knowledge base —
+> and tells you plainly when it could not identify something, instead of
+> reassuring you.
 
 ---
 
-## 🎯 Project Overview
+## What this is (and what it deliberately is not)
 
-In many developing countries, particularly India, elderly patients manage multiple chronic conditions (co-morbidities) by visiting independent specialists. Because there is **no unified Electronic Health Record (EHR)** database and clinic visits are hurried (averaging under 5 minutes), doctors only see the drugs they prescribe. 
+**The clinical decision is made by deterministic code, not by a model.**
+`backend/services/medication_registry.py` resolves brands and salts by exact
+match; `backend/services/clinical_engine.py` applies curated, cited rules,
+duplicate-ingredient arithmetic and gap constraints. Gemini reads handwriting and
+rephrases an explanation into Hindi or Tamil, and that is all it does. Every
+response reports `"model_calls_in_decision_path": 0`, and the invariant audit
+proves the findings are identical when the model is unreachable.
 
-**Medication Orchestra** acts as a continuous, household-level guardian. A team of coordinated AI agents processes prescription scans, maps Indian brand names to generic chemicals, runs RAG checks for interactions, creates safe, staggered daily schedules, and handles SOS notifications.
+**It never says "safe".** Every response carries a coverage ledger. If a medicine
+could not be identified, it is named in `unchecked[]` with a reason, and the
+client shows an amber "not fully checked" panel instead of a green tick. Before
+the rewrite the app showed a green tick over an *empty* corpus.
+
+**It never mixes two patients.** `profile_id=all` checks each person separately;
+there is no code path that pairs one household member's medicine with another's.
+
+**A rule only fires across an interaction.** Each rule declares the mechanism
+groups it connects (a blood thinner, an NSAID, an SSRI) and only pairs ingredients
+from *different* groups. Two painkillers of the same class are not "an
+antidepressant plus a painkiller"; that false alarm used to be reachable because
+the rule listed a whole drug class as one flat ingredient list. Groups are
+validated at load time — a rule with overlapping or missing groups stops the
+service rather than mis-firing.
+
+**An interval in the citation is an interval in the schedule.** Where a rule's own
+cited advice names a time (the aspirin/NSAID rule says 8 hours), the rule carries
+`min_gap_hours` and the solver and the independent verifier enforce that number,
+not a generic severity default.
+
+**The knowledge base has not been reviewed by a clinician yet.** The shipped set
+(195 ingredients, 33 rules, 175 brand presentations) is marked
+`DEMONSTRATION SET - not clinician-reviewed` in the data, in `/health`, and on
+screen. The source of every rule is recorded in
+[docs/KNOWLEDGE_SOURCES.md](docs/KNOWLEDGE_SOURCES.md); the licensing history
+matters — the original corpus derived from DrugBank and could not legally be
+shipped in a commercial product, so it was removed entirely.
 
 ---
 
-## 🩺 The Real-World DDI Problem
-
-This solution addresses critical health hazards backed by clinical statistics:
-- **Adverse Drug Reactions (ADRs):** Estimated to be between the **4th and 6th leading cause of death worldwide** (*PubMed, 2023*).
-- **Polypharmacy Risk:** Geriatric patients on 5+ concurrent medications face **more than double the rate of hospitalization** (*Scientific Reports, 2024*).
-- **Geriatric DDI Prevalence:** Major drug interactions are present in **16.41% of elderly prescriptions** (*European Journal of CV Medicine, 2025*).
-- **The Indian Context:** India's pharmacovigilance database records **under 1%** of actual adverse events due to fragmented local chemists and poor reporting infrastructure. Medication Orchestra closes this gap directly in the home.
-
----
-
-## 🤖 Multi-Agent Architecture (Google ADK)
-
-The application utilizes a coordinated group of specialized agents built on the **Google Agent Development Kit (ADK)**:
+## Architecture
 
 ```mermaid
 flowchart TD
-    User([User uploads Prescription]) --> Orchestrator{ADK Orchestrator}
-    
-    Orchestrator -->|Step 1| Intake[Intake Agent<br>Gemini 2.5 Flash Vision]
-    Intake -->|Extracts Drug Data| Search[Search Grounding Agent<br>Resolves Brand to Generic]
-    
-    Orchestrator -->|Step 2| Checker[Interaction Checker Agent<br>Vertex AI Vector Search]
-    Search --> Checker
-    Checker -->|RAG against 20k DDI DB| RiskAnalysis[Risk Summary & Severity]
-    
-    Orchestrator -->|Step 3| Scheduler[Schedule & Alert Agent<br>ADK + FCM]
-    RiskAnalysis --> Scheduler
-    Scheduler -->|Safe Staggered Timings| UI([Flutter User Interface])
-    Scheduler -->|Emergency SOS| FCM([Firebase Cloud Messaging])
+    A[Prescription / strip photo] --> B[image_service<br>sniff MIME, cap size,<br>strip EXIF, downscale]
+    B --> C[gemini_service<br>extraction only]
+    C --> D[medication_registry<br>exact brand + salt identity]
+    D --> E[clinical_engine<br>interactions, duplicate salts,<br>ceilings, gap constraints,<br>independent schedule verifier]
+    E --> F[explanation_service<br>phrasing only, validated<br>falls back to curated text]
+    E --> G[(Firestore<br>users/{uid}/…)]
+    E --> H[SOS via FCM<br>tenant-scoped device index]
 ```
 
-1. **Intake Agent (Gemini 2.5 Flash Vision):** Extracts drug names, strengths, and frequencies from prescription photos. It translates standard pharmaceutical abbreviations (e.g. *OD, BD, TDS, QID, AC, PC, HS*).
-2. **Search Grounding Agent (Google Search Grounding):** Resolves local Indian brand names (e.g. *Combiflam, Dolo 650, Ecosprin*) to their active generic compounds.
-3. **Interaction Checker Agent (Vertex AI Vector Search RAG):** Cross-references all medications in the household against a database of 20,000+ interactions, providing plain-language risk summaries and severity scales.
-4. **Schedule & Alert Agent (ADK + FCM):** Creates a daily schedule, staggers conflicting drugs (e.g. Warfarin and Ibuprofen) with a minimum 6-hour gap, sends alerts, and broadcasts emergency SOS notifications to designated family members.
+| Layer | Files |
+|---|---|
+| API | `backend/main.py` (v2.0.0), `docs/API.md` |
+| Clinical core | `backend/services/medication_registry.py`, `clinical_engine.py` |
+| Knowledge base | `backend/knowledge/*` — see `docs/KNOWLEDGE_SOURCES.md` |
+| Model surface (phrasing only) | `backend/services/explanation_service.py` |
+| Model surface (vision only) | `backend/services/gemini_service.py` |
+| Safety, privacy, audit | `auth_service.py`, `image_service.py`, `rate_limit.py`, `audit_service.py`, `notification_service.py`, `firestore.rules`, `docs/SECURITY_AND_PRIVACY.md` |
+| Client | `medication_orchestra/lib/` |
+
+The ADK agent classes that used to live in `backend/agents/` were deleted: they
+described an orchestration that the code did not implement, made the model a
+decision-maker, and were the source of the "no interactions found" failure.
 
 ---
 
-## 🔒 Security & Injection Safeguards
+## Running it locally
 
-To protect sensitive health information, Medication Orchestra employs a robust **3-layer security system**:
+### The one-command demo (no Google Cloud account needed)
+```bash
+cd backend && python3 dev_server.py         # http://localhost:8080
+```
+It replaces Firestore with an in-memory store, stubs auth and FCM, and seeds a
+demo household: an older patient on warfarin, Brufen, Dolo 650, Combiflam,
+Ecosprin and Clopilet, plus one illegible entry so the coverage ledger has
+something to report. The app itself is the real one — same engine, same rules.
+```bash
+curl -s localhost:8080/api/v1/interactions -H 'Authorization: Bearer demo'
+curl -s -X POST localhost:8080/api/v1/schedule/generate -H 'Authorization: Bearer demo'
+```
+It prints a warning banner and binds to all interfaces: never expose it. Opening
+`http://localhost:8080/` in a browser shows a small page with the endpoints and
+the ready-to-paste curl commands; `/docs` is the generated API reference.
 
-1. **Input Sanitization (`sanitize_drug_input`):** All user-derived strings are normalized and checked. Non-alphanumeric symbols typically used in prompt injections (e.g. `<|`, `]]`, `{{`, `---`, `\n`) are stripped, and blocklisted words (e.g., `"ignore"`, `"override"`, `"jailbreak"`) are rejected immediately.
-2. **Output Schema Validation (`validate_agent_output`):** Gemini JSON output is parsed against strict Pydantic models. Any deviation or presence of prompt-leak patterns rejects the run, reverting to safe local rules.
-3. **Least-Privilege Cloud Run Footprint:**
-   - Image runs in non-root mode (`USER appuser`).
-   - Uses direct IAM Service Account bindings for authentication via Google **Application Default Credentials (ADC)**—no raw API keys are committed or stored.
+### Backend against real Google Cloud
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+export PROJECT_ID=your-gcp-project-id     # required; the service refuses to start without it
+export DEV_AUTH_BYPASS=true               # local only; ignored when K_SERVICE is set
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+Health: `curl localhost:8080/health` · readiness: `curl localhost:8080/readyz`
+
+### Tests (no credentials, no network — the cloud clients are stubbed)
+```bash
+cd backend && python -m pytest tests/ -q          # 140 tests
+python scripts/safety_invariant_audit.py          # 46 checks, exits 0 only if every invariant holds
+```
+
+### Client
+```bash
+cd medication_orchestra
+flutter pub get
+flutter test
+flutter run --dart-define=API_BASE_URL=http://<your-lan-ip>:8080
+```
+
+### Container
+```bash
+docker build -t medication-orchestra ./backend
+docker run -p 8080:8080 -e PROJECT_ID=your-project medication-orchestra
+```
+The build **fails** if the knowledge base is missing or implausibly small, so a
+container that cannot make a clinical judgement can never be deployed.
 
 ---
 
-## 📁 Repository Structure
+## What the safety invariants guarantee
+
+`scripts/safety_invariant_audit.py` executes the real code and exits non-zero on
+any violation. The ten invariants:
+
+| # | Invariant |
+|---|---|
+| INV-1 | The clinical knowledge base ships with the service (in the image, checked at build time, at `/readyz`, and in CI) |
+| INV-2 | An empty, unconfigured or knowledge-base-less service fails loud — never a green "safe" |
+| INV-3 | Drug identity is exact: `cortisone ≠ hydrocortisone`, `ampicillin ≠ pivampicillin`, and the real `aspirin + clopidogrel` pair *is* found. A rule never fires on two drugs from the same side of the interaction, and every rule's mechanism groups are disjoint and complete |
+| INV-4 | A medicine that could not be identified is reported as unchecked, with a reason |
+| INV-5 | Duplicate ingredients are visible with the arithmetic (Dolo 650 + Combiflam = 975 mg per dose-time, 2600 mg/day) and a citation |
+| INV-6 | The schedule honours required gaps — including a rule's own cited interval — or says it could not; an independent verifier re-checks the result, and an alert names only the medicines that actually interact |
+| INV-7 | No model participates in a clinical decision |
+| INV-8 | Two patients' medicines are never paired |
+| INV-9 | Acknowledgements persist, and SOS references a finding that really exists |
+| INV-10 | Access is tenant-scoped and profile-scoped, with an audit trail |
+
+---
+
+## Cloud Run deployment
+
+The same deployment exists for both platforms, and both end with the same smoke
+test:
+
+```powershell
+.\deploy.ps1 -ProjectId my-project-123          # Windows
+```
+```bash
+./deploy.sh --project my-project-123            # Linux / macOS
+```
+
+It takes the project from `-ProjectId`, `$env:GOOGLE_CLOUD_PROJECT`, or your
+`gcloud config` — nothing is hardcoded. It creates the service account and grants
+the roles the service actually uses (`datastore.user`, `aiplatform.user`,
+`firebaseauth.admin`, `firebasecloudmessaging.admin`, `logging.logWriter`),
+builds via Cloud Build, deploys with `DEV_MODE=false` and `PROJECT_ID` set, then
+**smoke-tests what it deployed**:
+
+1. `/health` reports a plausible knowledge base (ingredients, rules, review status);
+2. `/readyz` is ready;
+3. `/api/v1/profiles` with an invalid token returns 401.
+
+Any of those failing makes the script exit non-zero and print the log command —
+a deployment that cannot make a clinical judgement is reported as a failure, not
+as success. Use `-SkipSmokeTest` only when you intend to run the checks yourself.
+The API is public unless you pass `-AllowUnauthenticated` explicitly (Firebase
+auth still guards every endpoint); set `ALLOWED_ORIGINS` for browser clients,
+which are denied by default outside localhost.
+
+---
+
+## Repository map
 
 ```text
-MedicationOrchestrationAgent/
-│
-├── backend/                       # Python FastAPI Backend
-│   ├── main.py                    # API Entrypoint
-│   ├── requirements.txt           # Python Dependencies
-│   ├── Dockerfile                 # Cloud Run container definition
-│   ├── agents/                    # Google ADK Agents
-│   │   ├── intake_agent.py        # Gemini Vision Extraction
-│   │   ├── interaction_agent.py   # RAG Drug Interactions
-│   │   └── schedule_agent.py      # Scheduling & SOS
-│   └── services/                  # Business Logic & Auth Services
-│
-├── medication_orchestra/          # Flutter Client App
-│   ├── lib/                       # Dart Source Code
-│   │   ├── main.dart              # App Entrypoint
-│   │   ├── screens/               # UI Screens (Login, Dashboard, Camera)
-│   │   ├── services/              # API Communication
-│   │   └── widgets/               # Reusable UI Components
-│   ├── pubspec.yaml               # Flutter Dependencies
-│   └── android/                   # Android-specific build configurations
-│
-├── scripts/                       # Utility Scripts
-├── deploy.ps1                     # PowerShell script for GCP Deployment
-└── monitoring_setup.ps1           # PowerShell script for GCP Metrics/Logs
+backend/
+├── main.py                  # API (v2.0.0)
+├── knowledge/               # ingredients.json, interactions.json, brand_mapping.csv
+├── services/                # registry, engine, model surfaces, auth, audit, limits, images
+├── agents/agent_security.py # input sanitisation + output validation
+├── dev_server.py            # run the real app locally with no credentials
+└── tests/                   # 140 tests, the in-memory Firestore fake, strip fixtures
+medication_orchestra/        # Flutter client
+scripts/safety_invariant_audit.py
+deploy.ps1 / deploy.sh       # Cloud Run deploy, smoke-tested (same gates in both)
+monitoring_setup.ps1         # dashboard + 5xx log metric
+docs/                        # API, knowledge sources, security & privacy, history, review, plan
 ```
 
----
+## Documentation
 
-## 💻 Local Development Setup
+* [docs/API.md](docs/API.md) — the endpoint contract
+* [docs/HISTORY.md](docs/HISTORY.md) — what was deleted from this repository, and why
+* [docs/KNOWLEDGE_SOURCES.md](docs/KNOWLEDGE_SOURCES.md) — where every clinical claim comes from, and its licence
+* [docs/SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md) — auth, tenancy, consent, audit, DPDP status
+* [HANDOFF.md](HANDOFF.md) — **start here if you are continuing this work**: every remaining production-readiness task, with the test that should pin it and the caveat that will bite
+* [docs/ADVERSARIAL_REVIEW_2.md](docs/ADVERSARIAL_REVIEW_2.md) — the adversarial review of the `handoff/fixes-phase1` branch: what it fixed, and the defects that remain (one critical: a dose outside the five default slot times is dropped without a word while the schedule still says `verified`)
+* [docs/ADVERSARIAL_REVIEW.md](docs/ADVERSARIAL_REVIEW.md) — the review that produced this work, with fix status
+* [docs/YC_PRODUCT_PLAN.md](docs/YC_PRODUCT_PLAN.md) — product, pricing and go-to-market
 
-### Backend (FastAPI + Python)
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Or on Windows: .venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Configure environment variables (create a `.env` file):
-   ```env
-   DEV_MODE=true
-   PROJECT_ID=your-gcp-project-id
-   ```
-5. Run the server locally:
-   ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-   ```
+## Medical disclaimer
 
-### Client (Flutter App)
-1. Navigate to the client folder:
-   ```bash
-   cd medication_orchestra
-   ```
-2. Fetch Flutter packages:
-   ```bash
-   flutter pub get
-   ```
-3. Run the app on an Android emulator or physical device pointing to your local backend:
-   ```bash
-   flutter run --dart-define=API_BASE_URL=http://localhost:8080
-   ```
-
----
-
-## ☁️ Cloud Run Deployment Setup
-
-The backend has been containerized and configured for automated serverless deployments to Google Cloud Run (scale-to-zero) via PowerShell:
-
-1. Log in and configure your GCP CLI context:
-   ```powershell
-   gcloud auth login
-   gcloud config set project your-gcp-project-id
-   ```
-2. Run the deployment script at the project root:
-   ```powershell
-   .\deploy.ps1
-   ```
-   *This automated script sets up the service account, binds roles (`datastore.user`, `aiplatform.user`, `firebaseauth.admin`, `logging.logWriter`), builds the image in Artifact Registry via Cloud Build, and deploys it serverlessly to Cloud Run.*
-
----
-
-## 📈 GCP Observability & Monitoring
-
-You can easily set up active logging and metric collection on Google Cloud Platform to track the health and latency of the agent pipeline.
-
-1. **Upload the Health Dashboard:**
-   ```powershell
-   .\monitoring_setup.ps1
-   ```
-   *This deploys a custom 4-chart health dashboard to your GCP console, mapping request rates, P95/P99 latencies, active scaling instances, and 5xx error spikes.*
-2. **Accessing logs:** Filter live logs by visiting your Google Cloud Console and navigating to the Cloud Run service logs.
+This software is a safety aid, not a substitute for a doctor or pharmacist. Its
+knowledge base is a demonstration set that has not been reviewed by a clinician.
+Always confirm with a healthcare professional before starting, stopping or
+changing any medicine.

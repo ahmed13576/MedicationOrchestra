@@ -3,15 +3,22 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../config/api_config.dart';
+import '../services/fcm_service.dart';
 import '../services/local_cache_service.dart';
 
-/// Displays the AI-generated safe daily medication schedule.
-/// Calls POST /api/v1/schedule/generate which runs the full ADK pipeline:
-/// fetch meds → check interactions → generate conflict-free dose times.
+/// The daily dose timetable, produced by the deterministic solver in
+/// `backend/services/clinical_engine.py` (`POST /api/v1/schedule/generate`) and
+/// independently verified there before it is returned.
+///
+/// This screen shows three things it must never overstate: the timetable, the
+/// doses the solver could *not* place safely, and whether the phone will really
+/// remind the user at each time.
 class ScheduleScreen extends StatefulWidget {
+  /// The patient to schedule for. `'all'` asks the backend for a separate,
+  /// independently verified schedule per patient.
   final String profileId;
 
-  const ScheduleScreen({super.key, this.profileId = 'default'});
+  const ScheduleScreen({super.key, required this.profileId});
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
@@ -25,6 +32,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   List<Map<String, dynamic>> _doseTimes = [];
   List<String> _safetyNotes = [];
   int _interactionCount = 0;
+
+  /// How many OS-level dose reminders were scheduled. Zero while reminders are
+  /// unsupported or permission was refused, which the UI must say out loud:
+  /// "your dose times are shown here" is not the same promise as "your phone
+  /// will remind you".
+  int _remindersScheduled = 0;
+
+  /// Medicines the solver could not place anywhere without breaking a required
+  /// gap (one entry each, however many of their doses failed), and the solver's
+  /// own status for the whole schedule. A timetable that silently omits a
+  /// medicine is worse than no timetable, so both are rendered.
+  List<Map<String, dynamic>> _unscheduled = [];
+  String _scheduleStatus = '';
 
   /// Timestamp of the last successful data load (local or network).
   DateTime? _cachedAt;
@@ -66,17 +86,31 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final token    = await _getAuthToken();
       final response = await _dio.post(
         '${ApiConfig.baseUrl}/api/v1/schedule/generate',
+        queryParameters: {'profile_id': pid},
         options: Options(
           headers: {'Authorization': 'Bearer $token'},
           receiveTimeout: const Duration(seconds: 90),
         ),
       );
 
-      final data     = response.data as Map<String, dynamic>;
-      final schedule = data['schedule'] as Map<String, dynamic>? ?? {};
+      final data = response.data as Map<String, dynamic>;
+      // profile_id='all' returns one schedule per patient; the caller (this
+      // screen) is scoped, so take the matching one and fall back to the only
+      // schedule when the household has a single patient.
+      final schedules = (data['schedules'] as List<dynamic>?) ?? const [];
+      final singleton = data['schedule'] as Map<String, dynamic>?;
+      final schedule = singleton ??
+          (schedules.isEmpty
+              ? <String, dynamic>{}
+              : Map<String, dynamic>.from(schedules.first as Map));
 
       // ── Step 3: Persist fresh schedule to local cache ──────────────────
       await LocalCacheService.saveSchedule(pid, today, schedule);
+
+      // The reminders are scheduled from the *verified* dose times the backend
+      // just produced - never from a locally invented timetable. If nothing
+      // could be scheduled the user is told, instead of assuming it happened.
+      await _scheduleReminders(schedule);
 
       if (mounted) {
         _applyScheduleData(
@@ -115,6 +149,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
+  /// Ask the OS to remind the user at each verified dose time.
+  Future<void> _scheduleReminders(Map<String, dynamic> schedule) async {
+    final doseTimes = (schedule['dose_times'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    if (doseTimes.isEmpty) return;
+
+    try {
+      final count = await FcmService.scheduleDailyDoses(doseTimes);
+      setState(() => _remindersScheduled = count);
+    } catch (e) {
+      debugPrint('[Schedule] Could not schedule reminders: $e');
+      if (mounted) setState(() => _remindersScheduled = 0);
+    }
+  }
+
   /// Applies a schedule map to state. Extracted to avoid repeating the
   /// setState logic for both local-cache and network paths.
   void _applyScheduleData(
@@ -125,11 +176,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }) {
     final rawDoseTimes = schedule['dose_times'] as List<dynamic>? ?? [];
     final rawNotes     = schedule['safety_notes'] as List<dynamic>? ?? [];
+    final rawUnscheduled = schedule['unscheduled'] as List<dynamic>? ?? [];
     setState(() {
       _doseTimes = rawDoseTimes
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
       _safetyNotes      = rawNotes.map((e) => e.toString()).toList();
+      _unscheduled      = rawUnscheduled
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      _scheduleStatus   = schedule['schedule_status']?.toString() ?? '';
       _interactionCount = interactionCount;
       _cachedAt         = cachedAt;
       _loadedFromLocal  = fromLocal;
@@ -171,7 +227,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 32),
               child: Text(
-                'Generating your safe schedule with AI…\nThis checks all your medications for interactions.',
+                'Building your dose schedule…\n'
+                'Every dose is checked for interactions and the gaps between them.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
@@ -277,6 +334,39 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ],
             ),
           ),
+        // ── Solver status ─────────────────────────────────────────────────────
+        // 'verified' means an independent pass re-checked every required gap;
+        // 'partial' means at least one dose is in the banner above.
+        if (_scheduleStatus.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(
+                  _scheduleStatus == 'verified'
+                      ? Icons.verified_outlined
+                      : Icons.report_problem_outlined,
+                  size: 14,
+                  color: _scheduleStatus == 'verified'
+                      ? Colors.green.shade700
+                      : Colors.orange.shade800,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _scheduleStatus == 'verified'
+                      ? 'Every dose was placed and re-checked'
+                      : 'Schedule is $_scheduleStatus - see the notes above',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _scheduleStatus == 'verified'
+                        ? Colors.green.shade800
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // ── Interaction warning banner ────────────────────────────────────────
         if (_interactionCount > 0)
           Container(
@@ -302,6 +392,99 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ],
             ),
           ),
+
+        // ── Doses the solver could not place ──────────────────────────────────
+        // Rendered before anything reassuring: a medicine missing from the
+        // timetable is the most important thing on this screen.
+        if (_unscheduled.isNotEmpty)
+          Container(
+            width: double.infinity,
+            key: const Key('unscheduled_banner'),
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${_unscheduled.length} medicine(s) could not be placed safely',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.red.shade900,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ..._unscheduled.map((entry) {
+                  final name = entry['med_name']?.toString() ?? 'A medicine';
+                  final reason = entry['reason']?.toString() ?? '';
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      reason == 'no_safe_slot_available'
+                          ? '$name - no time of day could keep it far enough from '
+                              'the other medicines. Ask your doctor or pharmacist.'
+                          : '$name - $reason',
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade900),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+
+        // ── Reminder banner ───────────────────────────────────────────────────
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _remindersScheduled > 0
+                ? Colors.blue.shade50
+                : Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _remindersScheduled > 0
+                    ? Icons.notifications_active_outlined
+                    : Icons.notifications_off_outlined,
+                size: 18,
+                color: _remindersScheduled > 0
+                    ? Colors.blue.shade700
+                    : Colors.orange.shade800,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _remindersScheduled > 0
+                      ? 'Reminders set for $_remindersScheduled dose time(s) on this phone.'
+                      : 'Reminders are not set on this phone - allow notifications to be '
+                          'reminded at these times.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _remindersScheduled > 0
+                        ? Colors.blue.shade900
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
 
         // Dose time cards
         ..._doseTimes.asMap().entries.map((entry) {
@@ -339,8 +522,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
         const SizedBox(height: 16),
         const Text(
-          'This schedule is generated by AI based on your medications and detected interactions. '
-          'Always consult your doctor before changing your medication routine.',
+          'This schedule is built by a fixed set of clinical rules from your medication list, '
+          'and independently re-checked before it is shown. Always consult your doctor before '
+          'changing your medication routine.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: Colors.grey),
         ),

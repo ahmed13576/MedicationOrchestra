@@ -25,8 +25,11 @@ List<Map<String, dynamic>> _parseInteractionsList(dynamic rawList) {
 ///  - Interaction symptoms to watch for (red caution box, for major/contraindicated)
 ///  - Acknowledge button
 class InteractionsScreen extends StatefulWidget {
-  /// The active profile ID. Included for future per-profile filtering;
-  /// the current backend checks ALL profiles for the authenticated user.
+  /// The active profile ID, or 'all' for the household.
+  ///
+  /// This is sent to the backend: 'all' checks every patient *separately* so
+  /// two people's medicines are never combined, and a specific id checks that
+  /// patient alone.
   final String profileId;
 
   const InteractionsScreen({
@@ -44,6 +47,18 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
   bool _isLoading = true;
   String? _error;
   List<Map<String, dynamic>> _interactions = [];
+
+  /// Medicines the engine could not identify. Non-empty means the list below is
+  /// NOT a complete check - the UI must say so instead of showing a green tick.
+  List<Map<String, dynamic>> _unchecked = [];
+
+  /// Coverage ledger from the backend: how many medicines were actually checked.
+  Map<String, dynamic> _coverage = {};
+
+  /// The clinical review state of the knowledge base that produced this answer.
+  String _reviewStatus = '';
+
+  bool get _coverageIsComplete => _coverage['is_complete'] == true;
 
   /// Timestamp of the last successful data load (local or network).
   DateTime? _cachedAt;
@@ -74,15 +89,24 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     final pid = widget.profileId;
 
     // ── Step 1: Show local cache immediately (zero latency, works offline) ────
-    final localData = await LocalCacheService.loadInteractions(pid);
-    final localTs   = await LocalCacheService.loadInteractionsCachedAt(pid);
-    if (localData != null && mounted) {
+    // The cache holds the coverage ledger and the unchecked list too, so the
+    // offline screen can still say what was and was not checked. A cache with
+    // no coverage block renders as "not fully checked", never as a green tick.
+    final localEnvelope = await LocalCacheService.loadInteractions(pid);
+    final localTs       = await LocalCacheService.loadInteractionsCachedAt(pid);
+    if (localEnvelope != null && mounted) {
       final parsed = await compute(
         _parseInteractionsList,
-        localData,
+        localEnvelope['interactions'] as List<dynamic>? ?? <dynamic>[],
       );
       setState(() {
         _interactions    = parsed;
+        _coverage        = (localEnvelope['coverage'] as Map?)?.cast<String, dynamic>() ?? {};
+        _unchecked       = (localEnvelope['unchecked'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ??
+            <Map<String, dynamic>>[];
+        _reviewStatus    = (localEnvelope['review_status'] as String?) ?? '';
         _cachedAt        = localTs;
         _loadedFromLocal = true;
         _isLoading       = false;
@@ -92,8 +116,11 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     // ── Step 2: Fetch fresh data from backend ─────────────────────────────────
     try {
       final token = await _getAuthToken();
+      // profileId scopes the check to one patient. 'all' asks the backend to
+      // check each patient separately (never mixing two people's medicines).
       final response = await _dio.get(
         '${ApiConfig.baseUrl}/api/v1/interactions',
+        queryParameters: {'profile_id': pid},
         options: Options(
           headers: {'Authorization': 'Bearer $token'},
           receiveTimeout: const Duration(seconds: 60),
@@ -103,13 +130,27 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
       final data    = response.data as Map<String, dynamic>;
       final rawList = data['interactions'];
       final parsed  = await compute(_parseInteractionsList, rawList);
+      final coverage = (data['coverage'] as Map?)?.cast<String, dynamic>() ?? {};
+      final unchecked = (data['unchecked'] as List?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          <Map<String, dynamic>>[];
 
-      // ── Step 3: Persist fresh data to local cache ─────────────────────────
-      await LocalCacheService.saveInteractions(pid, rawList as List<dynamic>? ?? []);
+      // ── Step 3: Persist fresh data to local cache (with the ledger) ───────
+      await LocalCacheService.saveInteractions(
+        pid,
+        rawList as List<dynamic>? ?? [],
+        coverage: coverage,
+        unchecked: unchecked,
+        reviewStatus: data['review_status'] as String?,
+      );
 
       if (mounted) {
         setState(() {
           _interactions    = parsed;
+          _unchecked       = unchecked;
+          _coverage        = coverage;
+          _reviewStatus    = (data['review_status'] as String?) ?? '';
           _cachedAt        = DateTime.now();
           _loadedFromLocal = false;
           _isLoading       = false;
@@ -118,7 +159,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     } on DioException catch (e) {
       // Network failed — keep local cache visible if we already showed it.
       final detail = e.response?.data?['detail']?.toString() ?? '';
-      if (mounted && localData == null) {
+      if (mounted && localEnvelope == null) {
         // No local cache either — show error.
         setState(() {
           _error = (detail.contains('RESOURCE_EXHAUSTED') || detail.contains('429'))
@@ -134,7 +175,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
       }
       debugPrint('[Interactions] Network error, using local cache: $e');
     } catch (e) {
-      if (mounted && localData == null) {
+      if (mounted && localEnvelope == null) {
         setState(() {
           _error     = 'Unexpected error: $e';
           _isLoading = false;
@@ -152,10 +193,13 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
   Future<void> _acknowledgeInteraction(String interactionId, int index) async {
     try {
       final token = await _getAuthToken();
-      await _dio.post(
+      final response = await _dio.post(
         '${ApiConfig.baseUrl}/api/v1/interactions/$interactionId/acknowledge',
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
+      if (response.statusCode != 200) {
+        throw Exception('Server returned ${response.statusCode}');
+      }
       setState(() {
         _interactions[index]['acknowledged'] = true;
       });
@@ -286,44 +330,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
     }
 
     if (_interactions.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.check_circle_outline,
-                  color: Colors.green.shade600,
-                  size: 56,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'No dangerous interactions found',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green.shade700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Your household medications appear to be safe to take together.',
-                style: TextStyle(color: Colors.grey.shade600),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildEmptyState();
     }
 
     return Column(
@@ -338,8 +345,10 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
               children: [
+                // Deliberately not a tick: the tick on this screen means "every
+                // medicine was checked", and a freshness badge must not borrow it.
                 Icon(
-                  _loadedFromLocal ? Icons.wifi_off : Icons.check_circle,
+                  _loadedFromLocal ? Icons.wifi_off : Icons.cloud_done_outlined,
                   size: 14,
                   color: _loadedFromLocal
                       ? Colors.orange.shade700
@@ -360,6 +369,7 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
               ],
             ),
           ),
+        _buildCoverageBanner(),
         // ── Interaction count banner ──────────────────────────────────────────
         Container(
           width: double.infinity,
@@ -382,6 +392,210 @@ class _InteractionsScreenState extends State<InteractionsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+
+  /// The empty state.
+  ///
+  /// This used to be a green tick and "safe to take together" — including when
+  /// the backend had no medicines to check, no information about one of them,
+  /// or no clinical data at all. Reassurance we have not earned is the one
+  /// defect this product cannot ship, so the tick now requires complete
+  /// coverage, and anything less gets an amber "not fully checked" panel that
+  /// names the medicines we could not identify.
+  Widget _buildEmptyState() {
+    final somethingToSay = _coverage.isNotEmpty;
+    final noMedications = somethingToSay && (_coverage['medications_total'] ?? 0) == 0;
+
+    if (_coverageIsComplete && _unchecked.isEmpty && !noMedications) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.verified_outlined,
+                  color: Colors.green.shade600,
+                  size: 56,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'No dangerous combinations found',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'All ${_coverage['medications_total']} of your medicines were checked '
+                'against ${_coverage['knowledge_base_rules'] ?? 'the'} known interaction rules.',
+                style: TextStyle(color: Colors.grey.shade700),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              _buildReviewDisclaimer(),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const SizedBox(height: 24),
+        Icon(
+          noMedications ? Icons.medication_outlined : Icons.error_outline,
+          color: noMedications ? Colors.blueGrey : Colors.orange.shade800,
+          size: 56,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          noMedications
+              ? 'No medicines to check yet'
+              : 'Some medicines could not be checked',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          noMedications
+              ? 'Scan a prescription or add your medicines, and we will check them '
+                  'against each other.'
+              : 'We are not able to say these are safe to take together yet.',
+          style: TextStyle(color: Colors.grey.shade700),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 20),
+        if (_unchecked.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              border: Border.all(color: Colors.orange.shade200),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Not checked:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ..._unchecked.map((item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        '• ${item['brand_name'] ?? 'Unknown medicine'} — '
+                        '${item['reason'] ?? 'we could not identify it'}',
+                        style: TextStyle(color: Colors.orange.shade900),
+                      ),
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ] else if (_coverage.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              border: Border.all(color: Colors.orange.shade200),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              'Checked ${_coverage['medications_fully_checked']} of '
+              '${_coverage['medications_total']} medicines.',
+              style: TextStyle(color: Colors.orange.shade900),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        _buildReviewDisclaimer(),
+      ],
+    );
+  }
+
+  /// The knowledge base shipped today is a demonstration set that has not been
+  /// reviewed by a clinician. Hiding that would be the more damaging choice.
+  Widget _buildReviewDisclaimer() {
+    if (!_reviewStatus.toLowerCase().contains('not clinician-reviewed')) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.science_outlined, size: 16, color: Colors.blueGrey.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Reference build: the medicine rules used here have not yet been '
+              'reviewed by a clinical pharmacist. Always confirm with your doctor '
+              'or pharmacist before changing any medicine.',
+              style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Coverage banner shown above the findings list when the list is non-empty.
+  Widget _buildCoverageBanner() {
+    final total = _coverage['medications_total'];
+    if (total == null) return const SizedBox.shrink();
+    final uncheckedCount = _coverage['medications_unchecked'] ?? _unchecked.length;
+
+    if (_coverageIsComplete) {
+      return Container(
+        width: double.infinity,
+        color: Colors.green.shade50,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Text(
+          'All $total medicines checked',
+          style: TextStyle(fontSize: 12, color: Colors.green.shade800),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      color: Colors.orange.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Text(
+        '$uncheckedCount of $total medicines could not be checked — '
+        'the findings below are not the whole picture.',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.orange.shade900,
+          fontWeight: FontWeight.w600,
+        ),
+        textAlign: TextAlign.center,
+      ),
     );
   }
 

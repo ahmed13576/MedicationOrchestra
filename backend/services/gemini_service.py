@@ -1,299 +1,186 @@
 """
-Medication Orchestra — Gemini Vision Service
-Parses prescription photos AND medicine blister pack images using Gemini 2.5 Flash.
+Medication Orchestra — Gemini Vision service.
 
-Auth: Google Cloud ADC (Application Default Credentials) — vertexai=True, NO API keys.
-Project: project-f9540f8f-d01e-47d3-a36
+Two jobs, both extraction-only:
+  1. Read a prescription photo or a strip photo into structured medication rows.
+  2. Classify an image as prescription / strip / other.
+
+Hard rules:
+  * This module never decides anything clinical. It returns raw fields plus a
+    confidence score. Ingredient identity, interactions, duplicates and timings
+    are all computed deterministically elsewhere
+    (services/medication_registry.py, services/clinical_engine.py).
+  * The declared image MIME type is whatever the bytes actually are, supplied by
+    services/image_service.py. The previous version hard-coded "image/jpeg" for
+    every upload, including PNG, HEIC and AVIF.
+  * Brand-to-generic mapping is a *hint*. It is validated against the ingredient
+    registry, and anything the registry does not recognise is left empty so the
+    coverage ledger can report it as unchecked.
 """
+
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
+
 from google import genai
 from google.genai import types
 
+from services.medication_registry import get_registry
+
 logger = logging.getLogger(__name__)
+
+PROJECT_ID = os.getenv("PROJECT_ID")
+LOCATION = os.getenv("LOCATION", "us-central1")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+if not PROJECT_ID:
+    raise RuntimeError("PROJECT_ID is not set; Vertex AI cannot be reached.")
+
+client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
 
 
 async def _retry_on_quota(coro_factory, max_retries: int = 3, base_delay: float = 2.0):
-    """
-    Retry an async callable with exponential backoff on Vertex AI 429/RESOURCE_EXHAUSTED.
-    Delays: 2s → 4s → 8s. Does NOT retry on non-quota errors.
-    """
-    last_exc = None
+    """Retry an async callable with exponential backoff on 429/RESOURCE_EXHAUSTED."""
+    last_exc: Exception | None = None
     for attempt in range(max_retries):
         try:
             return await coro_factory()
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                last_exc = e
+        except Exception as exc:
+            text = str(exc)
+            if "429" in text or "RESOURCE_EXHAUSTED" in text:
+                last_exc = exc
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # 2s, 4s, 8s
+                    delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        f"Vertex AI 429 — retry {attempt + 1}/{max_retries} in {delay:.0f}s: {err_str[:80]}"
+                        "Vertex AI throttled us (attempt %d/%d); retrying in %.0fs",
+                        attempt + 1, max_retries, delay,
                     )
                     await asyncio.sleep(delay)
                     continue
-            raise  # Non-quota error: fail immediately
-    raise last_exc
+            raise
+    raise last_exc  # type: ignore[misc]
 
-# ---------------------------------------------------------------------------
-# ADC client — never use API keys
-# ---------------------------------------------------------------------------
-
-client = genai.Client(
-    vertexai=True,
-    project="project-f9540f8f-d01e-47d3-a36",
-    location="us-central1",
-)
-
-MODEL = "gemini-2.5-flash"
 
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
-PRESCRIPTION_EXTRACTION_PROMPT = """
-You are a medical prescription parser specialized in Indian medical prescriptions.
+EXTRACTION_SCHEMA_INSTRUCTIONS = """
+Return a JSON array, one object per medicine, with EXACTLY these keys:
+  brand_name          - as printed (e.g. "Dolo 650"). "" if unreadable.
+  generic_name        - the active ingredient(s) if printed on the pack
+                        (e.g. "Paracetamol", "Ibuprofen + Paracetamol"). "" if not visible.
+  dosage              - strength per dose (e.g. "650mg", "1 tablet"). "" if not stated.
+  frequency_raw       - the shorthand as written (OD, BD, TDS, QID, HS, SOS, STAT, "1-0-1").
+  frequency_english   - plain English ("Twice daily"). "" if not written.
+  timing              - JSON array of "HH:MM" strings, using Indian meal times:
+                        breakfast 08:00, lunch 13:00, evening 17:00, dinner 20:00,
+                        bedtime 22:00. [] if the prescription does not say.
+  duration            - e.g. "5 days". "" if not written.
+  condition           - why it was prescribed, if written. "" otherwise.
+  confidence          - "high", "medium" or "low" - your honest reading confidence.
+  notes               - anything a pharmacist should know (e.g. "handwriting unclear").
 
-Analyze this prescription image and extract ALL medications prescribed.
-
-IMPORTANT INSTRUCTIONS:
-1. Read both printed AND handwritten text carefully
-2. Identify Indian prescription notations:
-   - OD = Once daily → timing: ["08:00"]
-   - BD = Twice daily → timing: ["08:00", "20:00"]
-   - TDS = Three times daily → timing: ["08:00", "14:00", "20:00"]
-   - QID = Four times daily → timing: ["08:00", "12:00", "16:00", "20:00"]
-   - SOS = As needed (when required)
-   - HS = At bedtime → timing: ["22:00"]
-   - AC = Before meals
-   - PC = After meals
-   - STAT = Take immediately
-3. Extract both brand name (e.g. "Dolo 650") and generic if visible (e.g. "Paracetamol")
-4. If handwriting is unclear, make your best interpretation and mark confidence as "low"
-5. Dosage examples: "1-0-1" means morning-afternoon-evening (BD), "1-1-1" means TDS
-
-Return a JSON array ONLY (no other text):
-[
-  {
-    "brand_name": "Dolo 650",
-    "generic_name": "Paracetamol",
-    "dosage": "650mg",
-    "frequency_raw": "BD",
-    "frequency_english": "Twice daily",
-    "timing": ["08:00", "20:00"],
-    "instruction": "After meals",
-    "duration": "5 days",
-    "condition": "Fever",
-    "confidence": "high",
-    "notes": ""
-  }
-]
-
-If no medications found: []
-If not a prescription image: {"error": "Not a prescription image"}
+NEVER invent a medicine, a strength or a frequency. If a field is not visible on
+the image, return "" (or [] for timing). An empty field is always better than a
+guess: the app shows the user what could not be read and asks them to confirm.
+If the image contains no medicine at all, return [].
 """
 
-BLISTER_PACK_EXTRACTION_PROMPT = """
-You are a pharmaceutical packaging reader specialized in Indian medicine blister packs.
-
-Analyze this medicine blister pack image and extract ALL medication information visible.
-
-IMPORTANT INSTRUCTIONS:
-1. Focus on text printed or embossed ON the foil or plastic backing — ignore background
-2. Read: brand name (large text), generic/salt name (smaller text below brand), strength/dosage
-3. Look for Indian blister pack patterns:
-   - Strip count: "10 tablets", "1x10", "2x5", "10's"
-   - Expiry format: "EXP: MM/YYYY" or "Use before MM/YY"
-   - Batch/Lot: "Batch No:", "B.No:", "Lot:", "MFG Batch:"
-   - Manufacturer: company name at edge or back
-4. If multiple different medications visible (multiple strip types), return one entry per medication
-5. If text is partially obscured by pills, infer from visible characters
-6. If a field is not visible or cannot be determined, use an empty string "" — do NOT guess
-
-Return a JSON array ONLY (no other text):
-[
-  {
-    "brand_name": "Dolo 650",
-    "generic_name": "Paracetamol",
-    "dosage": "650mg",
-    "total_tablets": 10,
-    "expiry_date": "06/2026",
-    "batch_no": "AB1234",
-    "manufacturer": "Micro Labs Ltd",
-    "frequency_raw": "",
-    "frequency_english": "",
-    "timing": [],
-    "instruction": "",
-    "duration": "",
-    "condition": "",
-    "source_type": "blister_pack",
-    "confidence": "high",
-    "notes": ""
-  }
-]
-
-If no medications found: []
-If not a blister pack image: {"error": "Not a blister pack image"}
+PRESCRIPTION_EXTRACTION_PROMPT = f"""
+You are reading an Indian doctor's prescription. Indian prescriptions use heavy
+abbreviation; expand it:
+  OD = once daily, BD = twice daily, TDS = three times daily, QID = four times daily,
+  HS = at bedtime, SOS = when required, STAT = immediately,
+  AC = before food, PC = after food.
+Dosing patterns like "1-0-1" mean morning-0-evening (twice daily) and "1-1-1" means
+three times daily.
+Read printed and handwritten text. Where handwriting is genuinely ambiguous, give
+your best reading and set confidence to "low".
+{EXTRACTION_SCHEMA_INSTRUCTIONS}
 """
 
-# NOTE: detect_image_type uses plain text response — do NOT add JSON mode here
-IMAGE_TYPE_DETECTION_PROMPT = """Classify this image as exactly one of: 'prescription', 'blister_pack', 'other'.
-A prescription is a handwritten or printed doctor's note listing medications.
-A blister pack is foil/plastic pill packaging with medication name printed on it.
-Reply with only the single word, nothing else."""
+BLISTER_PACK_EXTRACTION_PROMPT = f"""
+You are reading an Indian medicine strip or box. Read the text printed on the foil,
+blister or carton. Extract the brand name (largest text), the composition line
+(smaller text, often "Each tablet contains ..."), and the strength.
+Also capture, when visible: total tablets ("1x10", "10's"), expiry ("EXP 06/2026")
+and batch number - put those in `notes`.
+{EXTRACTION_SCHEMA_INSTRUCTIONS}
+"""
 
-# ---------------------------------------------------------------------------
-# Indian brand → generic mapping
-# ---------------------------------------------------------------------------
-
-INDIAN_BRAND_MAP = {
-    "dolo": "Paracetamol (Acetaminophen)",
-    "dolo 650": "Paracetamol (Acetaminophen) 650mg",
-    "crocin": "Paracetamol (Acetaminophen)",
-    "calpol": "Paracetamol (Acetaminophen)",
-    "combiflam": "Ibuprofen + Paracetamol",
-    "brufen": "Ibuprofen",
-    "ibugesic": "Ibuprofen",
-    "ecosprin": "Aspirin (Acetylsalicylic Acid)",
-    "disprin": "Aspirin",
-    "azithral": "Azithromycin",
-    "zithromax": "Azithromycin",
-    "augmentin": "Amoxicillin + Clavulanic Acid",
-    "amoxyclav": "Amoxicillin + Clavulanic Acid",
-    "metrogyl": "Metronidazole",
-    "flagyl": "Metronidazole",
-    "pantop": "Pantoprazole",
-    "pan": "Pantoprazole",
-    "razo": "Rabeprazole",
-    "omez": "Omeprazole",
-    "telma": "Telmisartan",
-    "amlong": "Amlodipine",
-    "amlip": "Amlodipine",
-    "glycomet": "Metformin",
-    "glucophage": "Metformin",
-    "glimisave": "Glimepiride",
-    "amaryl": "Glimepiride",
-    "ecosprin av": "Aspirin + Atorvastatin",
-    "atorva": "Atorvastatin",
-    "lipitor": "Atorvastatin",
-    "ciplar": "Propranolol",
-    "lasix": "Furosemide",
-    "shelcal": "Calcium + Vitamin D3",
-    "neurobion": "Vitamin B Complex",
-    "becosules": "Vitamin B Complex",
-    "limcee": "Vitamin C (Ascorbic Acid)",
-    "clavulin": "Amoxicillin + Clavulanic Acid",
-    "taxim": "Cefotaxime",
-    "cefixime": "Cefixime",
-    "zifi": "Cefixime",
-    "sporidex": "Cephalexin",
-    "clavam": "Amoxicillin + Clavulanic Acid",
-    "zincovit": "Multivitamin and Multimineral Supplement",
-    "montecip": "Montelukast Sodium",
-    "montecip fx": "Montelukast Sodium + Fexofenadine Hydrochloride",
-    "allegra": "Fexofenadine Hydrochloride",
-    "cetrizine": "Cetirizine Hydrochloride",
-    "zyrtec": "Cetirizine Hydrochloride",
-    "levocet": "Levocetirizine",
-}
-
-
-def map_brand_to_generic(brand_name: str) -> str:
-    """Map Indian brand name to generic name."""
-    key = brand_name.lower().strip()
-    # Try exact match
-    if key in INDIAN_BRAND_MAP:
-        return INDIAN_BRAND_MAP[key]
-    # Try prefix match (e.g., "Dolo 650mg" → "dolo")
-    for brand, generic in INDIAN_BRAND_MAP.items():
-        if key.startswith(brand):
-            return generic
-    # Return original if no mapping found
-    return brand_name
+IMAGE_TYPE_DETECTION_PROMPT = (
+    "Classify this image as exactly one of: prescription, blister_pack, other.\n"
+    "A prescription is a handwritten or printed doctor's note listing medicines.\n"
+    "A blister pack is foil or plastic pill packaging with a medicine name printed on it.\n"
+    "Reply with only the single word, nothing else."
+)
 
 
 # ---------------------------------------------------------------------------
-# Confidence Scoring
+# Confidence scoring
 # ---------------------------------------------------------------------------
+
+#: Fields that must be present for a medication to be considered fully checked.
+REQUIRED_FIELDS = ("brand_name", "generic_name", "dosage")
+REVIEW_THRESHOLD = 80
+
 
 def calculate_confidence_score(med: dict, source_type: str) -> tuple[int, list[str]]:
-    """
-    Score a medication dict for completeness/confidence (0–100).
+    """Score how completely a row was extracted.
 
-    Returns:
-        (score, issues) — score int, issues list of human-readable strings
-
-    Thresholds:
-        >= 80  → high confidence, save directly
-        50–79  → medium, prompt user to review
-        < 50   → low, strong warning + force review
+    Returns (score, issues). The score drives whether the user is asked to
+    confirm a field, and both are surfaced to the client - the coverage ledger
+    depends on this being honest rather than optimistic.
     """
     score = 0
-    issues = []
+    issues: list[str] = []
 
-    # --- Shared fields (both prescription and blister) ---
-    if med.get("brand_name", "").strip():
+    if (med.get("brand_name") or "").strip():
+        score += 30
+    else:
+        issues.append("Medicine name not detected")
+
+    generic = (med.get("generic_name") or "").strip()
+    brand = (med.get("brand_name") or "").strip()
+    if generic and generic.lower() != brand.lower():
         score += 20
     else:
-        issues.append("Medication name not detected")
+        issues.append("Active ingredient not read from the pack - please confirm")
 
-    generic = med.get("generic_name", "").strip()
-    brand = med.get("brand_name", "").strip()
-    if generic and generic != brand:
-        score += 10
-    else:
-        issues.append("Generic/composition not identified")
-
-    if med.get("dosage", "").strip():
+    if (med.get("dosage") or "").strip():
         score += 15
     else:
-        issues.append("Dosage/strength not found")
+        issues.append("Strength not read - please confirm")
 
-    # Gemini self-reported confidence
-    confidence_field = med.get("confidence", "").lower()
-    if confidence_field == "high":
+    self_reported = str(med.get("confidence") or "").strip().lower()
+    if self_reported == "high":
         score += 15
-    elif confidence_field == "low":
-        score -= 20
-        issues.append("Low OCR confidence (unclear image or text)")
+    elif self_reported == "medium":
+        score += 5
+    elif self_reported == "low":
+        score -= 15
+        issues.append("The photo was hard to read")
 
-    # --- Source-type specific fields ---
     if source_type == "prescription":
-        if med.get("frequency_english", "").strip():
-            score += 15
-        else:
-            issues.append("Dose frequency not found")
-
-        if med.get("timing") and len(med["timing"]) > 0:
+        if (med.get("frequency_english") or med.get("frequency_raw") or "").strip():
             score += 10
         else:
-            issues.append("Dose timing not extracted")
-
-        if med.get("duration", "").strip():
-            score += 5
-
-    elif source_type == "blister_pack":
-        if med.get("expiry_date", "").strip():
-            score += 15
+            issues.append("How often to take it was not clear")
+        if med.get("timing"):
+            score += 10
+        else:
+            issues.append("Times of day were not clear")
+    else:
+        if (med.get("expiry_date") or "").strip():
+            score += 10
         else:
             issues.append("Expiry date not found")
 
-        if med.get("batch_no", "").strip():
-            score += 10
-        else:
-            issues.append("Batch number not found")
-
-        if med.get("manufacturer", "").strip():
-            score += 10
-        else:
-            issues.append("Manufacturer not identified")
-
-    # Clamp to [0, 100]
-    score = max(0, min(100, score))
-    return score, issues
+    return max(0, min(100, score)), issues
 
 
 # ---------------------------------------------------------------------------
@@ -301,190 +188,155 @@ def calculate_confidence_score(med: dict, source_type: str) -> tuple[int, list[s
 # ---------------------------------------------------------------------------
 
 def _strip_json_fences(text: str) -> str:
-    """Strip markdown code fences from Gemini response (belt-and-suspenders safety)."""
-    text = text.strip()
+    text = (text or "").strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        lines = lines[1:] if lines[0].startswith("```") else lines
+        if lines[0].startswith("```"):
+            lines = lines[1:]
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         text = "\n".join(lines)
     return text.strip()
 
 
-def _make_image_part(image_bytes: bytes) -> types.Part:
-    """Create a Gemini image part from raw bytes."""
-    return types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+def _make_image_part(image_bytes: bytes, mime_type: str) -> types.Part:
+    return types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
 
 def _call_gemini(
     prompt: str,
     image_bytes: bytes,
-    temperature: float = 0.1,
+    mime_type: str,
+    temperature: float = 0.0,
     max_tokens: int = 4096,
     json_mode: bool = True,
 ) -> str:
-    """
-    Gemini API call with optional JSON-constrained decoding.
-
-    json_mode=True: forces model to emit only valid JSON tokens (fixes truncation).
-    json_mode=False: used for plain-text responses (e.g. image type detection).
-    """
-    config_kwargs: dict = dict(
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-    )
+    config_kwargs: dict = {"temperature": temperature, "max_output_tokens": max_tokens}
     if json_mode:
         config_kwargs["response_mime_type"] = "application/json"
-
     response = client.models.generate_content(
         model=MODEL,
-        contents=[prompt, _make_image_part(image_bytes)],
+        contents=[prompt, _make_image_part(image_bytes, mime_type)],
         config=types.GenerateContentConfig(**config_kwargs),
     )
-    return response.text
+    return response.text or ""
+
+
+def _validate_brand_hint(med: dict) -> None:
+    """Check the model's generic name against the registry.
+
+    A generic the registry does not recognise is left in place (the user still
+    sees what the pack said) but is *not* treated as verified, so the coverage
+    ledger reports the medication as unchecked.
+    """
+    if not (med.get("generic_name") or "").strip():
+        return
+    registry = get_registry()
+    resolution = registry.resolve_medication(med.get("brand_name"), med.get("generic_name"))
+    med["_registry_resolved"] = bool(resolution.ingredients)
+    med["_registry_parts"] = [i["ingredient_id"] for i in resolution.ingredients]
+    if not resolution.ingredients:
+        med["_review_note"] = (
+            "We did not recognise the active ingredient on this one - "
+            "please check the strip or ask your pharmacist."
+        )
+
+
+def _finalise(rows: list[dict], source_type: str) -> list[dict]:
+    for med in rows:
+        if not isinstance(med, dict):
+            continue
+        med["source_type"] = source_type
+        _validate_brand_hint(med)
+        score, issues = calculate_confidence_score(med, source_type)
+        med["_confidence_score"] = score
+        med["_review_issues"] = issues + ([med["_review_note"]] if med.get("_review_note") else [])
+        med["requires_review"] = score < REVIEW_THRESHOLD
+    return [m for m in rows if isinstance(m, dict)]
+
+
+def _parse_rows(raw: str, source_type: str) -> list[dict]:
+    cleaned = _strip_json_fences(raw)
+    try:
+        result = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        logger.error("Could not parse model JSON (%s): %s", exc, cleaned[:300])
+        return []
+
+    if isinstance(result, dict) and result.get("error"):
+        raise ValueError(str(result["error"]))
+    if isinstance(result, dict):
+        for key in ("medications", "medicines", "data", "items"):
+            if isinstance(result.get(key), list):
+                result = result[key]
+                break
+    if not isinstance(result, list):
+        return []
+    return _finalise(result, source_type)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-async def detect_image_type(image_bytes: bytes) -> str:
-    """
-    Classify image as 'prescription', 'blister_pack', or 'other'.
-    Uses plain text (not JSON mode) since response is a single word.
-    Defaults to 'prescription' on any error (safer fallback).
-    """
+async def detect_image_type(image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+    """Classify an image. Fails closed to 'prescription' on any error."""
     try:
-        # json_mode=False — response is a single word, not JSON
         raw = await _retry_on_quota(
             lambda: asyncio.to_thread(
-                _call_gemini,
-                IMAGE_TYPE_DETECTION_PROMPT,
-                image_bytes,
-                0.0,
-                10,
-                False,
+                _call_gemini, IMAGE_TYPE_DETECTION_PROMPT, image_bytes,
+                mime_type, 0.0, 16, False,
             )
         )
-        result = raw.strip().lower().replace("'", "").replace('"', "")
+        result = (raw or "").strip().lower().strip("'\"").replace(" ", "_")
         if result in ("prescription", "blister_pack", "other"):
             return result
-        # Partial match fallback
-        if "blister" in result or "pack" in result:
+        if "blister" in result or "pack" in result or "strip" in result:
             return "blister_pack"
         if "prescription" in result or "doctor" in result:
             return "prescription"
         return "prescription"
-    except Exception as e:
-        logger.warning(f"Image type detection failed: {e} — defaulting to 'prescription'")
+    except Exception as exc:
+        logger.warning("Image type detection failed (%s); assuming prescription", exc)
         return "prescription"
 
 
-async def parse_prescription(image_bytes: bytes) -> list[dict]:
-    """
-    Parse a prescription image and return a list of medication dicts.
-    Each dict includes _confidence_score and _review_issues (stripped before Firestore write).
-    Raises ValueError if image is not a prescription.
-    Returns [] if prescription but no medications found.
-    """
-    # Higher token budget for prescriptions (more text fields, handwriting)
+async def parse_prescription(image_bytes: bytes, mime_type: str = "image/jpeg") -> list[dict]:
     raw = await _retry_on_quota(
         lambda: asyncio.to_thread(
-            _call_gemini, PRESCRIPTION_EXTRACTION_PROMPT, image_bytes, 0.1, 8192
+            _call_gemini, PRESCRIPTION_EXTRACTION_PROMPT, image_bytes, mime_type, 0.0, 8192
         )
     )
-    cleaned = _strip_json_fences(raw)
-
-    try:
-        result = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse prescription Gemini JSON (pos {e.pos}): {cleaned[:300]}")
-        return []
-
-    if isinstance(result, dict) and "error" in result:
-        raise ValueError(result["error"])
-
-    if not isinstance(result, list):
-        return []
-
-    for med in result:
-        # Apply brand→generic mapping
-        if not med.get("generic_name") or med.get("generic_name") == med.get("brand_name"):
-            med["generic_name"] = map_brand_to_generic(med.get("brand_name", ""))
-        med["source_type"] = "prescription"
-
-        # Attach confidence score (internal — stripped before Firestore write)
-        score, issues = calculate_confidence_score(med, "prescription")
-        med["_confidence_score"] = score
-        med["_review_issues"] = issues
-
-    return result
+    return _parse_rows(raw, "prescription")
 
 
-async def parse_blister_pack(image_bytes: bytes) -> list[dict]:
-    """
-    Parse a blister pack image and return a list of medication dicts.
-    Each dict includes _confidence_score and _review_issues (stripped before Firestore write).
-    Raises ValueError if image is not a blister pack.
-    """
+async def parse_blister_pack(image_bytes: bytes, mime_type: str = "image/jpeg") -> list[dict]:
     raw = await _retry_on_quota(
         lambda: asyncio.to_thread(
-            _call_gemini, BLISTER_PACK_EXTRACTION_PROMPT, image_bytes, 0.1, 4096
+            _call_gemini, BLISTER_PACK_EXTRACTION_PROMPT, image_bytes, mime_type, 0.0, 4096
         )
     )
-    cleaned = _strip_json_fences(raw)
-
-    try:
-        result = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse blister pack Gemini JSON (pos {e.pos}): {cleaned[:300]}")
-        return []
-
-    if isinstance(result, dict) and "error" in result:
-        raise ValueError(result["error"])
-
-    if not isinstance(result, list):
-        return []
-
-    for med in result:
-        # Apply brand→generic mapping
-        if not med.get("generic_name") or med.get("generic_name") == med.get("brand_name"):
-            med["generic_name"] = map_brand_to_generic(med.get("brand_name", ""))
-        med["source_type"] = "blister_pack"
-
-        # Attach confidence score (internal — stripped before Firestore write)
-        score, issues = calculate_confidence_score(med, "blister_pack")
-        med["_confidence_score"] = score
-        med["_review_issues"] = issues
-
-    return result
+    return _parse_rows(raw, "blister_pack")
 
 
-async def parse_medication_image(image_bytes: bytes, image_type: str = "auto") -> tuple[list[dict], str, bool]:
-    """
-    Unified entry point. Auto-detects or routes by explicit image_type.
-
-    Args:
-        image_bytes: Raw JPEG bytes of the image
-        image_type: 'auto' | 'prescription' | 'blister_pack'
-
-    Returns:
-        (medications, detected_type, requires_review)
-        requires_review=True when ANY medication has _confidence_score < 80
-    """
-    if image_type == "auto":
-        detected = await detect_image_type(image_bytes)
-    else:
-        detected = image_type
-
+async def parse_medication_image(
+    image_bytes: bytes,
+    image_type: str = "auto",
+    mime_type: str = "image/jpeg",
+    language: str = "en",
+) -> tuple[list[dict], str, bool]:
+    """Unified entry point: (medications, detected_type, requires_review)."""
+    detected = (
+        await detect_image_type(image_bytes, mime_type) if image_type == "auto" else image_type
+    )
     if detected == "blister_pack":
-        medications = await parse_blister_pack(image_bytes)
+        medications = await parse_blister_pack(image_bytes, mime_type)
     elif detected == "prescription":
-        medications = await parse_prescription(image_bytes)
+        medications = await parse_prescription(image_bytes, mime_type)
     else:
-        # 'other' — not a medical image
-        raise ValueError("Image does not appear to be a prescription or medicine pack.")
-
-    requires_review = any(m.get("_confidence_score", 100) < 80 for m in medications)
+        raise ValueError(
+            "That does not look like a prescription or a medicine pack. Please photograph "
+            "the strip or the doctor's note."
+        )
+    requires_review = any(m.get("requires_review") for m in medications)
     return medications, detected, requires_review

@@ -78,9 +78,61 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadActiveProfile();
-    _loadProfiles();
+    _loadProfiles().then((_) => _ensureDefaultProfile());
     // Initialize FCM — fire and forget, never blocks the UI
     FcmService.initialize(_dio, ApiConfig.baseUrl);
+  }
+
+  /// Guarantee at least one real profile exists.
+  ///
+  /// Saving a medicine needs a profile id the backend can store it under. On a
+  /// fresh install there was none, and the app fell back to the literal string
+  /// 'default' — so the medicines existed but belonged to a profile that never
+  /// appeared in any list, and the household check could not scope them.
+  Future<void> _ensureDefaultProfile() async {
+    if (_profiles.isNotEmpty) {
+      final known = _profiles.any((p) => p['profile_id'] == _activeProfileId);
+      if (!known) {
+        final first = _profiles.first;
+        await _setActiveProfileQuietly(
+          first['profile_id'] as String,
+          (first['name'] as String?) ?? 'Me',
+        );
+      }
+      return;
+    }
+    try {
+      final token = await _getAuthToken();
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/v1/profiles',
+        data: {'name': 'Me'},
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      final profile = {
+        'profile_id': response.data['profile_id'],
+        'name': response.data['name'],
+      };
+      if (mounted) setState(() => _profiles.add(profile));
+      await _setActiveProfileQuietly(
+        profile['profile_id'] as String,
+        profile['name'] as String,
+      );
+    } catch (_) {
+      // Offline first launch: the app still works read-only, and the user can
+      // add a profile from the drawer once they are online.
+    }
+  }
+
+  Future<void> _setActiveProfileQuietly(String id, String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('active_profile_id', id);
+    await prefs.setString('active_profile_name', name);
+    if (mounted) {
+      setState(() {
+        _activeProfileId = id;
+        _activeProfileName = name;
+      });
+    }
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -102,6 +154,16 @@ class _HomeScreenState extends State<HomeScreen> {
       _activeProfileName = prefs.getString('active_profile_name') ?? 'Default';
     });
   }
+
+  /// The profile id as the backend understands it.
+  ///
+  /// The app stores 'default' when no profile has been chosen; the API expects
+  /// 'all' for "every patient, checked separately". Sending 'default' used to
+  /// produce a 404 on every profile-scoped endpoint.
+  String get _profileScope =>
+      (_activeProfileId.isEmpty || _activeProfileId == 'default')
+          ? 'all'
+          : _activeProfileId;
 
   Future<void> _setActiveProfile(String id, String name) async {
     final prefs = await SharedPreferences.getInstance();
@@ -221,9 +283,21 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       setState(() => _profiles.removeWhere((p) => p['profile_id'] == profileId));
 
-      // If the deleted profile was active, fall back to 'default'
+      // If the deleted profile was active, move to another real profile rather
+      // than leaving the app pointed at a profile that no longer exists.
       if (_activeProfileId == profileId) {
-        await _setActiveProfile('default', 'Default');
+        final remaining = _profiles
+            .where((p) => p['profile_id'] != profileId)
+            .toList();
+        if (remaining.isNotEmpty) {
+          await _setActiveProfileQuietly(
+            remaining.first['profile_id'] as String,
+            (remaining.first['name'] as String?) ?? 'Me',
+          );
+          await _ensureDefaultProfile();
+        } else {
+          await _ensureDefaultProfile();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -285,7 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 // Default profile tile
                 _buildProfileTile(
-                  profileId: 'default',
+                  profileId: 'all',
                   name: 'Default',
                   color: null,
                   canDelete: false,
@@ -530,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ScheduleScreen(
-                        profileId: _activeProfileId,
+                        profileId: _profileScope,
                       ),
                     ),
                   ),
@@ -551,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => InteractionsScreen(
-                        profileId: _activeProfileId,
+                        profileId: _profileScope,
                       ),
                     ),
                   ),
@@ -584,67 +658,112 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Show SOS confirmation dialog and fire the emergency alert.
+  /// Show the SOS confirmation and send the emergency alert.
+  ///
+  /// Two things changed here, both of which used to make SOS do nothing at all:
+  ///   1. the alert is identified by `alert_id`, the field the API actually
+  ///      accepts (the old payload sent `interaction_id`, which the backend's
+  ///      model does not carry, so every SOS was a 422/404);
+  ///   2. the id comes from the check response the *server* just produced and
+  ///      persisted, so the backend can validate it before notifying anyone.
+  /// The delivery outcome is reported to the user verbatim: "sent to everyone"
+  /// is only shown when everyone was actually reached.
   Future<void> _showSosDialog() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('🚨 Send SOS Alert?'),
-        content: const Text(
-          'This will immediately notify ALL your registered family members '
-          'about a critical medication interaction. Only use in emergencies.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            key: const Key('sos_confirm_button'),
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Send Alert'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
     try {
       final token = await _getAuthToken();
-      // Get the top interaction to alert about
       final resp = await _dio.get(
         '${ApiConfig.baseUrl}/api/v1/interactions',
+        queryParameters: {'profile_id': _profileScope},
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
-      final interactions =
-          (resp.data['interactions'] as List<dynamic>?) ?? [];
+      final interactions = (resp.data['interactions'] as List<dynamic>?) ?? [];
       if (interactions.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('No interactions found to alert about.')),
+            content: Text(
+              'There is nothing to alert anyone about: no interactions are '
+              'currently flagged for this profile.',
+            ),
+          ),
         );
         return;
       }
-      final topInteraction =
-          Map<String, dynamic>.from(interactions.first as Map);
-      await _dio.post(
+
+      final top = Map<String, dynamic>.from(interactions.first as Map);
+      final title = (top['title'] as String?) ?? 'a medication risk';
+
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('\u{1F6A8} Send SOS alert?'),
+          content: Text(
+            'This will immediately notify your registered family contacts about:\n\n'
+            '$title\n\n'
+            'It is meant for a real emergency. Your contacts will be told which '
+            'medicines are involved and what to watch for.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              key: const Key('sos_confirm_button'),
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Send alert'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+
+      final sos = await _dio.post(
         '${ApiConfig.baseUrl}/api/v1/sos/alert',
         data: {
-          'interaction_id': topInteraction['id'] ?? '',
+          'alert_id': top['id'] ?? '',
           'patient_name': _activeProfileName,
         },
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
+
+      final sent = sos.data['sent_to'] ?? 0;
+      final failed = sos.data['failed'] ?? 0;
+      final total = sos.data['total_family_members'] ?? sent;
+      final skipped = (sos.data['skipped'] as List<dynamic>?) ?? const [];
+
       if (!mounted) return;
+      final reachedEveryone = sent == total && failed == 0 && skipped.isEmpty;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🚨 SOS Alert sent to all family members!'),
-          backgroundColor: Colors.red,
+        SnackBar(
+          content: Text(
+            reachedEveryone
+                ? '\u{1F6A8} Alert delivered to all $sent contact(s).'
+                : 'Alert delivered to $sent of $total contact(s).'
+                    '${skipped.isNotEmpty ? " ${skipped.length} could not be reached." : ""}'
+                    '${failed > 0 ? " $failed failed to send." : ""}',
+          ),
+          backgroundColor: reachedEveryone ? Colors.red : Colors.orange.shade800,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final detail = e.response?.data?['detail']?.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            detail?.isNotEmpty == true
+                ? detail!
+                : 'Could not send the alert. Check your connection and try again.',
+          ),
+          backgroundColor: Colors.red.shade900,
+          duration: const Duration(seconds: 8),
         ),
       );
     } catch (e) {

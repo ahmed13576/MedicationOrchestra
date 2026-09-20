@@ -1,24 +1,24 @@
-# --- Python ---
+# --- Build context hygiene ---------------------------------------------------
+# NOTE: the previous version excluded `data/`, which is where the DDI corpus
+# lived. The deployed image therefore contained zero interaction records while
+# the API still returned "no interactions found". The knowledge base is now
+# explicitly INCLUDED, and a health check fails the deploy if it is missing.
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache/
+.ruff_cache/
 
-# --- Secrets (NEVER include in image) ---
+# --- Secrets (never ship) ----------------------------------------------------
 service-account.json
 .env
 *.env
-
-# --- Vector Search ---
-vector_search_config.json
-data/
-
-# --- Logs ---
 *.log
 
-# --- Dev artifacts ---
+# --- Tests and dev artifacts -------------------------------------------------
+tests/
 .coverage
 htmlcov/
 dist/

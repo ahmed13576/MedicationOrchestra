@@ -1,11 +1,24 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-google-genai>=1.10.0
-google-cloud-firestore==2.19.0
-firebase-admin==6.5.0
-google-cloud-aiplatform==1.68.0
-python-multipart==0.0.12
-pillow==10.4.0
-python-dotenv==1.0.1
-pydantic==2.9.2
-google-auth==2.35.0
+# Runtime dependencies for the Medication Orchestra backend.
+#
+# Configuration comes from the environment (PROJECT_ID, ALLOWED_ORIGINS,
+# GEMINI_MODEL, DEV_AUTH_BYPASS, DEV_MODE) - no .env loader is bundled.
+#
+# Pinned exactly. The previous file mixed `==` with an unbounded `>=` and had no
+# lock file, so two deploys a month apart were not the same software. Bump via a
+# pull request; CI runs pip-audit and fails on known vulnerabilities.
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+google-genai==2.24.0
+google-cloud-firestore==2.30.0
+firebase-admin==7.6.0
+python-multipart==0.0.32
+pillow==12.3.0
+pydantic==2.13.5
+
+# NOTE: google-cloud-aiplatform was removed. The Vertex AI Vector Search path it
+# supported never returned results (the index was never deployed, and the config
+# it read for the endpoint lived in a directory excluded from the image), so the
+# product was running entirely on a keyword fallback that has since been replaced
+# by a deterministic knowledge base. Removing the dependency removes the illusion
+# that a vector index was in use.

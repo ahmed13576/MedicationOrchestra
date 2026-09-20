@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <!-- Push notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Re-arm scheduled dose reminders after a reboot or an app update.
+         Without this the reminders exist until the phone restarts, then
+         silently stop firing. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="Medication Orchestra"
         android:name="${applicationName}"

@@ -1,0 +1,1829 @@
+{
+  "version": "1.0.1",
+  "description": "Canonical ingredient registry. Identity is resolved by exact normalised synonym lookup only - never by substring containment. 'external_ids' is intentionally empty: populate RxNorm/UNII/ATC codes from the official releases (RxNorm is public domain, UNII is free) during the licensed-import step described in docs/DATA_PROVENANCE.md.",
+  "ingredients": {
+    "paracetamol": {
+      "name": "Paracetamol",
+      "synonyms": [
+        "acetaminophen",
+        "para amino phenol",
+        "n acetyl p aminophenol",
+        "apap",
+        "paracetamol ip"
+      ],
+      "class": [
+        "analgesic",
+        "antipyretic"
+      ],
+      "external_ids": {}
+    },
+    "ibuprofen": {
+      "name": "Ibuprofen",
+      "synonyms": [
+        "ibuprofen ip",
+        "isobutylphenyl propionic acid"
+      ],
+      "class": [
+        "nsaid",
+        "analgesic",
+        "antipyretic"
+      ],
+      "external_ids": {}
+    },
+    "aspirin": {
+      "name": "Aspirin",
+      "synonyms": [
+        "acetylsalicylic acid",
+        "asa",
+        "acetyl salicylic acid",
+        "ecosprin"
+      ],
+      "class": [
+        "nsaid",
+        "antiplatelet"
+      ],
+      "external_ids": {}
+    },
+    "naproxen": {
+      "name": "Naproxen",
+      "synonyms": [
+        "naproxen sodium"
+      ],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "diclofenac": {
+      "name": "Diclofenac",
+      "synonyms": [
+        "diclofenac sodium",
+        "diclofenac potassium"
+      ],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "aceclofenac": {
+      "name": "Aceclofenac",
+      "synonyms": [],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "ketorolac": {
+      "name": "Ketorolac",
+      "synonyms": [
+        "ketorolac tromethamine"
+      ],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "indomethacin": {
+      "name": "Indomethacin",
+      "synonyms": [],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "etoricoxib": {
+      "name": "Etoricoxib",
+      "synonyms": [],
+      "class": [
+        "nsaid",
+        "coxib"
+      ],
+      "external_ids": {}
+    },
+    "celecoxib": {
+      "name": "Celecoxib",
+      "synonyms": [],
+      "class": [
+        "nsaid",
+        "coxib"
+      ],
+      "external_ids": {}
+    },
+    "nimesulide": {
+      "name": "Nimesulide",
+      "synonyms": [],
+      "class": [
+        "nsaid"
+      ],
+      "external_ids": {}
+    },
+    "warfarin": {
+      "name": "Warfarin",
+      "synonyms": [
+        "warfarin sodium"
+      ],
+      "class": [
+        "anticoagulant",
+        "vitamin k antagonist"
+      ],
+      "external_ids": {}
+    },
+    "acenocoumarol": {
+      "name": "Acenocoumarol",
+      "synonyms": [
+        "nicoumalone"
+      ],
+      "class": [
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "apixaban": {
+      "name": "Apixaban",
+      "synonyms": [],
+      "class": [
+        "doac",
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "rivaroxaban": {
+      "name": "Rivaroxaban",
+      "synonyms": [],
+      "class": [
+        "doac",
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "dabigatran": {
+      "name": "Dabigatran",
+      "synonyms": [
+        "dabigatran etexilate"
+      ],
+      "class": [
+        "doac",
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "heparin": {
+      "name": "Heparin",
+      "synonyms": [],
+      "class": [
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "enoxaparin": {
+      "name": "Enoxaparin",
+      "synonyms": [
+        "low molecular weight heparin",
+        "lmwh"
+      ],
+      "class": [
+        "anticoagulant"
+      ],
+      "external_ids": {}
+    },
+    "clopidogrel": {
+      "name": "Clopidogrel",
+      "synonyms": [
+        "clopidogrel bisulfate"
+      ],
+      "class": [
+        "antiplatelet"
+      ],
+      "external_ids": {}
+    },
+    "ticagrelor": {
+      "name": "Ticagrelor",
+      "synonyms": [],
+      "class": [
+        "antiplatelet"
+      ],
+      "external_ids": {}
+    },
+    "prasugrel": {
+      "name": "Prasugrel",
+      "synonyms": [],
+      "class": [
+        "antiplatelet"
+      ],
+      "external_ids": {}
+    },
+    "dipyridamole": {
+      "name": "Dipyridamole",
+      "synonyms": [],
+      "class": [
+        "antiplatelet"
+      ],
+      "external_ids": {}
+    },
+    "tranexamic": {
+      "name": "Tranexamic acid",
+      "synonyms": [
+        "tranexamic"
+      ],
+      "class": [
+        "antifibrinolytic"
+      ],
+      "external_ids": {}
+    },
+    "metformin": {
+      "name": "Metformin",
+      "synonyms": [
+        "metformin hydrochloride",
+        "metformin hcl"
+      ],
+      "class": [
+        "antidiabetic",
+        "biguanide"
+      ],
+      "external_ids": {}
+    },
+    "glimepiride": {
+      "name": "Glimepiride",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "sulfonylurea"
+      ],
+      "external_ids": {}
+    },
+    "glibenclamide": {
+      "name": "Glibenclamide",
+      "synonyms": [
+        "glyburide"
+      ],
+      "class": [
+        "antidiabetic",
+        "sulfonylurea"
+      ],
+      "external_ids": {}
+    },
+    "gliclazide": {
+      "name": "Gliclazide",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "sulfonylurea"
+      ],
+      "external_ids": {}
+    },
+    "sitagliptin": {
+      "name": "Sitagliptin",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "dpp4 inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "vildagliptin": {
+      "name": "Vildagliptin",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "dpp4 inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "empagliflozin": {
+      "name": "Empagliflozin",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "sglt2 inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "dapagliflozin": {
+      "name": "Dapagliflozin",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "sglt2 inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "pioglitazone": {
+      "name": "Pioglitazone",
+      "synonyms": [],
+      "class": [
+        "antidiabetic",
+        "tzd"
+      ],
+      "external_ids": {}
+    },
+    "insulin glargine": {
+      "name": "Insulin glargine",
+      "synonyms": [
+        "glargine"
+      ],
+      "class": [
+        "antidiabetic",
+        "insulin"
+      ],
+      "external_ids": {}
+    },
+    "insulin regular": {
+      "name": "Insulin regular",
+      "synonyms": [
+        "human insulin",
+        "soluble insulin"
+      ],
+      "class": [
+        "antidiabetic",
+        "insulin"
+      ],
+      "external_ids": {}
+    },
+    "amlodipine": {
+      "name": "Amlodipine",
+      "synonyms": [
+        "amlodipine besylate"
+      ],
+      "class": [
+        "antihypertensive",
+        "calcium channel blocker"
+      ],
+      "external_ids": {}
+    },
+    "nifedipine": {
+      "name": "Nifedipine",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "calcium channel blocker"
+      ],
+      "external_ids": {}
+    },
+    "diltiazem": {
+      "name": "Diltiazem",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "calcium channel blocker"
+      ],
+      "external_ids": {}
+    },
+    "verapamil": {
+      "name": "Verapamil",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "calcium channel blocker"
+      ],
+      "external_ids": {}
+    },
+    "telmisartan": {
+      "name": "Telmisartan",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "arb"
+      ],
+      "external_ids": {}
+    },
+    "losartan": {
+      "name": "Losartan",
+      "synonyms": [
+        "losartan potassium"
+      ],
+      "class": [
+        "antihypertensive",
+        "arb"
+      ],
+      "external_ids": {}
+    },
+    "olmesartan": {
+      "name": "Olmesartan",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "arb"
+      ],
+      "external_ids": {}
+    },
+    "ramipril": {
+      "name": "Ramipril",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "ace inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "enalapril": {
+      "name": "Enalapril",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "ace inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "lisinopril": {
+      "name": "Lisinopril",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "ace inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "metoprolol": {
+      "name": "Metoprolol",
+      "synonyms": [
+        "metoprolol succinate",
+        "metoprolol tartrate"
+      ],
+      "class": [
+        "antihypertensive",
+        "beta blocker"
+      ],
+      "external_ids": {}
+    },
+    "atenolol": {
+      "name": "Atenolol",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "beta blocker"
+      ],
+      "external_ids": {}
+    },
+    "bisoprolol": {
+      "name": "Bisoprolol",
+      "synonyms": [],
+      "class": [
+        "antihypertensive",
+        "beta blocker"
+      ],
+      "external_ids": {}
+    },
+    "propranolol": {
+      "name": "Propranolol",
+      "synonyms": [],
+      "class": [
+        "beta blocker"
+      ],
+      "external_ids": {}
+    },
+    "hydrochlorothiazide": {
+      "name": "Hydrochlorothiazide",
+      "synonyms": [],
+      "class": [
+        "diuretic",
+        "thiazide"
+      ],
+      "external_ids": {}
+    },
+    "chlorthalidone": {
+      "name": "Chlorthalidone",
+      "synonyms": [],
+      "class": [
+        "diuretic",
+        "thiazide"
+      ],
+      "external_ids": {}
+    },
+    "furosemide": {
+      "name": "Furosemide",
+      "synonyms": [
+        "frusemide"
+      ],
+      "class": [
+        "diuretic",
+        "loop diuretic"
+      ],
+      "external_ids": {}
+    },
+    "spironolactone": {
+      "name": "Spironolactone",
+      "synonyms": [],
+      "class": [
+        "diuretic",
+        "potassium sparing diuretic"
+      ],
+      "external_ids": {}
+    },
+    "torsemide": {
+      "name": "Torsemide",
+      "synonyms": [],
+      "class": [
+        "diuretic",
+        "loop diuretic"
+      ],
+      "external_ids": {}
+    },
+    "prazosin": {
+      "name": "Prazosin",
+      "synonyms": [],
+      "class": [
+        "alpha blocker"
+      ],
+      "external_ids": {}
+    },
+    "tamsulosin": {
+      "name": "Tamsulosin",
+      "synonyms": [],
+      "class": [
+        "alpha blocker"
+      ],
+      "external_ids": {}
+    },
+    "clonidine": {
+      "name": "Clonidine",
+      "synonyms": [],
+      "class": [
+        "antihypertensive"
+      ],
+      "external_ids": {}
+    },
+    "methyldopa": {
+      "name": "Methyldopa",
+      "synonyms": [],
+      "class": [
+        "antihypertensive"
+      ],
+      "external_ids": {}
+    },
+    "nitroglycerin": {
+      "name": "Nitroglycerin",
+      "synonyms": [
+        "glyceryl trinitrate",
+        "gtn",
+        "nitroglycerine"
+      ],
+      "class": [
+        "nitrate"
+      ],
+      "external_ids": {}
+    },
+    "isosorbide mononitrate": {
+      "name": "Isosorbide mononitrate",
+      "synonyms": [
+        "isosorbide 5 mononitrate",
+        "ismo"
+      ],
+      "class": [
+        "nitrate"
+      ],
+      "external_ids": {}
+    },
+    "atorvastatin": {
+      "name": "Atorvastatin",
+      "synonyms": [
+        "atorvastatin calcium"
+      ],
+      "class": [
+        "statin"
+      ],
+      "external_ids": {}
+    },
+    "rosuvastatin": {
+      "name": "Rosuvastatin",
+      "synonyms": [
+        "rosuvastatin calcium"
+      ],
+      "class": [
+        "statin"
+      ],
+      "external_ids": {}
+    },
+    "simvastatin": {
+      "name": "Simvastatin",
+      "synonyms": [],
+      "class": [
+        "statin"
+      ],
+      "external_ids": {}
+    },
+    "pravastatin": {
+      "name": "Pravastatin",
+      "synonyms": [],
+      "class": [
+        "statin"
+      ],
+      "external_ids": {}
+    },
+    "omeprazole": {
+      "name": "Omeprazole",
+      "synonyms": [],
+      "class": [
+        "ppi"
+      ],
+      "external_ids": {}
+    },
+    "pantoprazole": {
+      "name": "Pantoprazole",
+      "synonyms": [
+        "pantoprazole sodium"
+      ],
+      "class": [
+        "ppi"
+      ],
+      "external_ids": {}
+    },
+    "rabeprazole": {
+      "name": "Rabeprazole",
+      "synonyms": [
+        "rabeprazole sodium"
+      ],
+      "class": [
+        "ppi"
+      ],
+      "external_ids": {}
+    },
+    "esomeprazole": {
+      "name": "Esomeprazole",
+      "synonyms": [],
+      "class": [
+        "ppi"
+      ],
+      "external_ids": {}
+    },
+    "ranitidine": {
+      "name": "Ranitidine",
+      "synonyms": [],
+      "class": [
+        "h2 blocker"
+      ],
+      "external_ids": {}
+    },
+    "famotidine": {
+      "name": "Famotidine",
+      "synonyms": [],
+      "class": [
+        "h2 blocker"
+      ],
+      "external_ids": {}
+    },
+    "ondansetron": {
+      "name": "Ondansetron",
+      "synonyms": [],
+      "class": [
+        "antiemetic"
+      ],
+      "external_ids": {}
+    },
+    "domperidone": {
+      "name": "Domperidone",
+      "synonyms": [],
+      "class": [
+        "antiemetic",
+        "prokinetic"
+      ],
+      "external_ids": {}
+    },
+    "metoclopramide": {
+      "name": "Metoclopramide",
+      "synonyms": [
+        "metoclopramide hydrochloride"
+      ],
+      "class": [
+        "antiemetic",
+        "prokinetic"
+      ],
+      "external_ids": {}
+    },
+    "amoxicillin": {
+      "name": "Amoxicillin",
+      "synonyms": [
+        "amoxycillin"
+      ],
+      "class": [
+        "antibiotic",
+        "penicillin"
+      ],
+      "external_ids": {}
+    },
+    "clavulanic acid": {
+      "name": "Clavulanic acid",
+      "synonyms": [
+        "clavulanate",
+        "clavulanic"
+      ],
+      "class": [
+        "beta lactamase inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "ampicillin": {
+      "name": "Ampicillin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "penicillin"
+      ],
+      "external_ids": {}
+    },
+    "piperacillin": {
+      "name": "Piperacillin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "penicillin"
+      ],
+      "external_ids": {}
+    },
+    "cefixime": {
+      "name": "Cefixime",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "cephalosporin"
+      ],
+      "external_ids": {}
+    },
+    "ceftriaxone": {
+      "name": "Ceftriaxone",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "cephalosporin"
+      ],
+      "external_ids": {}
+    },
+    "cephalexin": {
+      "name": "Cephalexin",
+      "synonyms": [
+        "cephaleksin"
+      ],
+      "class": [
+        "antibiotic",
+        "cephalosporin"
+      ],
+      "external_ids": {}
+    },
+    "azithromycin": {
+      "name": "Azithromycin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "macrolide"
+      ],
+      "external_ids": {}
+    },
+    "clarithromycin": {
+      "name": "Clarithromycin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "macrolide"
+      ],
+      "external_ids": {}
+    },
+    "erythromycin": {
+      "name": "Erythromycin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "macrolide"
+      ],
+      "external_ids": {}
+    },
+    "ciprofloxacin": {
+      "name": "Ciprofloxacin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "fluoroquinolone"
+      ],
+      "external_ids": {}
+    },
+    "levofloxacin": {
+      "name": "Levofloxacin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "fluoroquinolone"
+      ],
+      "external_ids": {}
+    },
+    "ofloxacin": {
+      "name": "Ofloxacin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "fluoroquinolone"
+      ],
+      "external_ids": {}
+    },
+    "norfloxacin": {
+      "name": "Norfloxacin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "fluoroquinolone"
+      ],
+      "external_ids": {}
+    },
+    "metronidazole": {
+      "name": "Metronidazole",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "antiprotozoal"
+      ],
+      "external_ids": {}
+    },
+    "doxycycline": {
+      "name": "Doxycycline",
+      "synonyms": [
+        "doxycycline hyclate"
+      ],
+      "class": [
+        "antibiotic",
+        "tetracycline"
+      ],
+      "external_ids": {}
+    },
+    "cotrimoxazole": {
+      "name": "Cotrimoxazole",
+      "synonyms": [
+        "trimethoprim sulfamethoxazole",
+        "co trimoxazole",
+        "tmp smx"
+      ],
+      "class": [
+        "antibiotic",
+        "sulfonamide"
+      ],
+      "external_ids": {}
+    },
+    "trimethoprim": {
+      "name": "Trimethoprim",
+      "synonyms": [],
+      "class": [
+        "antibiotic"
+      ],
+      "external_ids": {}
+    },
+    "linezolid": {
+      "name": "Linezolid",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "oxazolidinone"
+      ],
+      "external_ids": {}
+    },
+    "nitrofurantoin": {
+      "name": "Nitrofurantoin",
+      "synonyms": [
+        "nitrofurantoin macrocrystals"
+      ],
+      "class": [
+        "antibiotic"
+      ],
+      "external_ids": {}
+    },
+    "fluconazole": {
+      "name": "Fluconazole",
+      "synonyms": [],
+      "class": [
+        "antifungal"
+      ],
+      "external_ids": {}
+    },
+    "itraconazole": {
+      "name": "Itraconazole",
+      "synonyms": [],
+      "class": [
+        "antifungal"
+      ],
+      "external_ids": {}
+    },
+    "ketoconazole": {
+      "name": "Ketoconazole",
+      "synonyms": [],
+      "class": [
+        "antifungal"
+      ],
+      "external_ids": {}
+    },
+    "rifampicin": {
+      "name": "Rifampicin",
+      "synonyms": [
+        "rifampin"
+      ],
+      "class": [
+        "antibiotic",
+        "antitubercular"
+      ],
+      "external_ids": {}
+    },
+    "isoniazid": {
+      "name": "Isoniazid",
+      "synonyms": [
+        "inh"
+      ],
+      "class": [
+        "antitubercular"
+      ],
+      "external_ids": {}
+    },
+    "pyrazinamide": {
+      "name": "Pyrazinamide",
+      "synonyms": [],
+      "class": [
+        "antitubercular"
+      ],
+      "external_ids": {}
+    },
+    "ethambutol": {
+      "name": "Ethambutol",
+      "synonyms": [],
+      "class": [
+        "antitubercular"
+      ],
+      "external_ids": {}
+    },
+    "prednisolone": {
+      "name": "Prednisolone",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "prednisone": {
+      "name": "Prednisone",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "dexamethasone": {
+      "name": "Dexamethasone",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "hydrocortisone": {
+      "name": "Hydrocortisone",
+      "synonyms": [
+        "cortisol"
+      ],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "cortisone": {
+      "name": "Cortisone",
+      "synonyms": [
+        "cortisone acetate"
+      ],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "methylprednisolone": {
+      "name": "Methylprednisolone",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "deflazacort": {
+      "name": "Deflazacort",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "levothyroxine": {
+      "name": "Levothyroxine",
+      "synonyms": [
+        "thyroxine",
+        "t4",
+        "l thyroxine",
+        "levothyroxine sodium"
+      ],
+      "class": [
+        "thyroid hormone"
+      ],
+      "external_ids": {}
+    },
+    "carbimazole": {
+      "name": "Carbimazole",
+      "synonyms": [],
+      "class": [
+        "antithyroid"
+      ],
+      "external_ids": {}
+    },
+    "methimazole": {
+      "name": "Methimazole",
+      "synonyms": [
+        "thiamazole"
+      ],
+      "class": [
+        "antithyroid"
+      ],
+      "external_ids": {}
+    },
+    "allopurinol": {
+      "name": "Allopurinol",
+      "synonyms": [],
+      "class": [
+        "xanthine oxidase inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "febuxostat": {
+      "name": "Febuxostat",
+      "synonyms": [],
+      "class": [
+        "xanthine oxidase inhibitor"
+      ],
+      "external_ids": {}
+    },
+    "colchicine": {
+      "name": "Colchicine",
+      "synonyms": [],
+      "class": [
+        "anti gout"
+      ],
+      "external_ids": {}
+    },
+    "azathioprine": {
+      "name": "Azathioprine",
+      "synonyms": [],
+      "class": [
+        "immunosuppressant"
+      ],
+      "external_ids": {}
+    },
+    "methotrexate": {
+      "name": "Methotrexate",
+      "synonyms": [
+        "mtx"
+      ],
+      "class": [
+        "immunosuppressant",
+        "dmard"
+      ],
+      "external_ids": {}
+    },
+    "hydroxychloroquine": {
+      "name": "Hydroxychloroquine",
+      "synonyms": [],
+      "class": [
+        "dmard"
+      ],
+      "external_ids": {}
+    },
+    "sulfasalazine": {
+      "name": "Sulfasalazine",
+      "synonyms": [],
+      "class": [
+        "dmard"
+      ],
+      "external_ids": {}
+    },
+    "mycophenolate": {
+      "name": "Mycophenolate",
+      "synonyms": [
+        "mycophenolate mofetil"
+      ],
+      "class": [
+        "immunosuppressant"
+      ],
+      "external_ids": {}
+    },
+    "tacrolimus": {
+      "name": "Tacrolimus",
+      "synonyms": [],
+      "class": [
+        "immunosuppressant"
+      ],
+      "external_ids": {}
+    },
+    "sertraline": {
+      "name": "Sertraline",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "ssri"
+      ],
+      "external_ids": {}
+    },
+    "fluoxetine": {
+      "name": "Fluoxetine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "ssri"
+      ],
+      "external_ids": {}
+    },
+    "escitalopram": {
+      "name": "Escitalopram",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "ssri"
+      ],
+      "external_ids": {}
+    },
+    "citalopram": {
+      "name": "Citalopram",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "ssri"
+      ],
+      "external_ids": {}
+    },
+    "paroxetine": {
+      "name": "Paroxetine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "ssri"
+      ],
+      "external_ids": {}
+    },
+    "amitriptyline": {
+      "name": "Amitriptyline",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "tca"
+      ],
+      "external_ids": {}
+    },
+    "nortriptyline": {
+      "name": "Nortriptyline",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "tca"
+      ],
+      "external_ids": {}
+    },
+    "imipramine": {
+      "name": "Imipramine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "tca"
+      ],
+      "external_ids": {}
+    },
+    "venlafaxine": {
+      "name": "Venlafaxine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "snri"
+      ],
+      "external_ids": {}
+    },
+    "duloxetine": {
+      "name": "Duloxetine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "snri"
+      ],
+      "external_ids": {}
+    },
+    "mirtazapine": {
+      "name": "Mirtazapine",
+      "synonyms": [],
+      "class": [
+        "antidepressant"
+      ],
+      "external_ids": {}
+    },
+    "trazodone": {
+      "name": "Trazodone",
+      "synonyms": [],
+      "class": [
+        "antidepressant"
+      ],
+      "external_ids": {}
+    },
+    "phenelzine": {
+      "name": "Phenelzine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "maoi"
+      ],
+      "external_ids": {}
+    },
+    "tranylcypromine": {
+      "name": "Tranylcypromine",
+      "synonyms": [],
+      "class": [
+        "antidepressant",
+        "maoi"
+      ],
+      "external_ids": {}
+    },
+    "lithium": {
+      "name": "Lithium",
+      "synonyms": [
+        "lithium carbonate"
+      ],
+      "class": [
+        "mood stabiliser"
+      ],
+      "external_ids": {}
+    },
+    "valproate": {
+      "name": "Valproate",
+      "synonyms": [
+        "valproic acid",
+        "sodium valproate",
+        "divalproex"
+      ],
+      "class": [
+        "antiepileptic",
+        "mood stabiliser"
+      ],
+      "external_ids": {}
+    },
+    "carbamazepine": {
+      "name": "Carbamazepine",
+      "synonyms": [],
+      "class": [
+        "antiepileptic"
+      ],
+      "external_ids": {}
+    },
+    "phenytoin": {
+      "name": "Phenytoin",
+      "synonyms": [],
+      "class": [
+        "antiepileptic"
+      ],
+      "external_ids": {}
+    },
+    "levetiracetam": {
+      "name": "Levetiracetam",
+      "synonyms": [],
+      "class": [
+        "antiepileptic"
+      ],
+      "external_ids": {}
+    },
+    "diazepam": {
+      "name": "Diazepam",
+      "synonyms": [],
+      "class": [
+        "benzodiazepine"
+      ],
+      "external_ids": {}
+    },
+    "alprazolam": {
+      "name": "Alprazolam",
+      "synonyms": [],
+      "class": [
+        "benzodiazepine"
+      ],
+      "external_ids": {}
+    },
+    "lorazepam": {
+      "name": "Lorazepam",
+      "synonyms": [],
+      "class": [
+        "benzodiazepine"
+      ],
+      "external_ids": {}
+    },
+    "clonazepam": {
+      "name": "Clonazepam",
+      "synonyms": [],
+      "class": [
+        "benzodiazepine"
+      ],
+      "external_ids": {}
+    },
+    "clobazam": {
+      "name": "Clobazam",
+      "synonyms": [],
+      "class": [
+        "benzodiazepine"
+      ],
+      "external_ids": {}
+    },
+    "zolpidem": {
+      "name": "Zolpidem",
+      "synonyms": [],
+      "class": [
+        "z drug",
+        "hypnotic"
+      ],
+      "external_ids": {}
+    },
+    "eszopiclone": {
+      "name": "Eszopiclone",
+      "synonyms": [],
+      "class": [
+        "z drug",
+        "hypnotic"
+      ],
+      "external_ids": {}
+    },
+    "quetiapine": {
+      "name": "Quetiapine",
+      "synonyms": [],
+      "class": [
+        "antipsychotic"
+      ],
+      "external_ids": {}
+    },
+    "risperidone": {
+      "name": "Risperidone",
+      "synonyms": [],
+      "class": [
+        "antipsychotic"
+      ],
+      "external_ids": {}
+    },
+    "haloperidol": {
+      "name": "Haloperidol",
+      "synonyms": [],
+      "class": [
+        "antipsychotic"
+      ],
+      "external_ids": {}
+    },
+    "olanzapine": {
+      "name": "Olanzapine",
+      "synonyms": [],
+      "class": [
+        "antipsychotic"
+      ],
+      "external_ids": {}
+    },
+    "tramadol": {
+      "name": "Tramadol",
+      "synonyms": [
+        "tramadol hydrochloride"
+      ],
+      "class": [
+        "opioid",
+        "analgesic"
+      ],
+      "external_ids": {}
+    },
+    "codeine": {
+      "name": "Codeine",
+      "synonyms": [
+        "codeine phosphate"
+      ],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "morphine": {
+      "name": "Morphine",
+      "synonyms": [
+        "morphine sulfate"
+      ],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "fentanyl": {
+      "name": "Fentanyl",
+      "synonyms": [],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "tapentadol": {
+      "name": "Tapentadol",
+      "synonyms": [],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "buprenorphine": {
+      "name": "Buprenorphine",
+      "synonyms": [],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "diphenhydramine": {
+      "name": "Diphenhydramine",
+      "synonyms": [],
+      "class": [
+        "antihistamine",
+        "anticholinergic"
+      ],
+      "external_ids": {}
+    },
+    "chlorpheniramine": {
+      "name": "Chlorpheniramine",
+      "synonyms": [
+        "chlorphenamine"
+      ],
+      "class": [
+        "antihistamine",
+        "anticholinergic"
+      ],
+      "external_ids": {}
+    },
+    "hydroxyzine": {
+      "name": "Hydroxyzine",
+      "synonyms": [],
+      "class": [
+        "antihistamine",
+        "anticholinergic"
+      ],
+      "external_ids": {}
+    },
+    "promethazine": {
+      "name": "Promethazine",
+      "synonyms": [],
+      "class": [
+        "antihistamine",
+        "anticholinergic"
+      ],
+      "external_ids": {}
+    },
+    "cetirizine": {
+      "name": "Cetirizine",
+      "synonyms": [
+        "cetirizine hydrochloride"
+      ],
+      "class": [
+        "antihistamine"
+      ],
+      "external_ids": {}
+    },
+    "levocetirizine": {
+      "name": "Levocetirizine",
+      "synonyms": [],
+      "class": [
+        "antihistamine"
+      ],
+      "external_ids": {}
+    },
+    "fexofenadine": {
+      "name": "Fexofenadine",
+      "synonyms": [
+        "fexofenadine hydrochloride"
+      ],
+      "class": [
+        "antihistamine"
+      ],
+      "external_ids": {}
+    },
+    "montelukast": {
+      "name": "Montelukast",
+      "synonyms": [
+        "montelukast sodium"
+      ],
+      "class": [
+        "leukotriene antagonist"
+      ],
+      "external_ids": {}
+    },
+    "salbutamol": {
+      "name": "Salbutamol",
+      "synonyms": [
+        "albuterol"
+      ],
+      "class": [
+        "bronchodilator"
+      ],
+      "external_ids": {}
+    },
+    "formoterol": {
+      "name": "Formoterol",
+      "synonyms": [],
+      "class": [
+        "bronchodilator"
+      ],
+      "external_ids": {}
+    },
+    "budesonide": {
+      "name": "Budesonide",
+      "synonyms": [],
+      "class": [
+        "corticosteroid"
+      ],
+      "external_ids": {}
+    },
+    "digoxin": {
+      "name": "Digoxin",
+      "synonyms": [
+        "digitalis"
+      ],
+      "class": [
+        "cardiac glycoside"
+      ],
+      "external_ids": {}
+    },
+    "amiodarone": {
+      "name": "Amiodarone",
+      "synonyms": [],
+      "class": [
+        "antiarrhythmic"
+      ],
+      "external_ids": {}
+    },
+    "dronedarone": {
+      "name": "Dronedarone",
+      "synonyms": [],
+      "class": [
+        "antiarrhythmic"
+      ],
+      "external_ids": {}
+    },
+    "sotalol": {
+      "name": "Sotalol",
+      "synonyms": [],
+      "class": [
+        "antiarrhythmic",
+        "beta blocker"
+      ],
+      "external_ids": {}
+    },
+    "flecainide": {
+      "name": "Flecainide",
+      "synonyms": [],
+      "class": [
+        "antiarrhythmic"
+      ],
+      "external_ids": {}
+    },
+    "ivabradine": {
+      "name": "Ivabradine",
+      "synonyms": [],
+      "class": [
+        "antiarrhythmic"
+      ],
+      "external_ids": {}
+    },
+    "hydralazine": {
+      "name": "Hydralazine",
+      "synonyms": [],
+      "class": [
+        "antihypertensive"
+      ],
+      "external_ids": {}
+    },
+    "isosorbide dinitrate": {
+      "name": "Isosorbide dinitrate",
+      "synonyms": [],
+      "class": [
+        "nitrate"
+      ],
+      "external_ids": {}
+    },
+    "ferrous ascorbate": {
+      "name": "Ferrous ascorbate",
+      "synonyms": [
+        "iron",
+        "ferrous salt",
+        "elemental iron",
+        "ferrous sulphate",
+        "ferrous sulfate",
+        "ferrous fumarate",
+        "iron sucrose",
+        "ferric carboxymaltose"
+      ],
+      "class": [
+        "iron supplement"
+      ],
+      "external_ids": {}
+    },
+    "calcium carbonate": {
+      "name": "Calcium carbonate",
+      "synonyms": [
+        "calcium",
+        "elemental calcium",
+        "calcium citrate"
+      ],
+      "class": [
+        "mineral supplement"
+      ],
+      "external_ids": {}
+    },
+    "vitamin d3": {
+      "name": "Vitamin D3",
+      "synonyms": [
+        "cholecalciferol",
+        "vitamin d"
+      ],
+      "class": [
+        "vitamin"
+      ],
+      "external_ids": {}
+    },
+    "vitamin b12": {
+      "name": "Vitamin B12",
+      "synonyms": [
+        "cyanocobalamin",
+        "methylcobalamin"
+      ],
+      "class": [
+        "vitamin"
+      ],
+      "external_ids": {}
+    },
+    "folic acid": {
+      "name": "Folic acid",
+      "synonyms": [
+        "folate"
+      ],
+      "class": [
+        "vitamin"
+      ],
+      "external_ids": {}
+    },
+    "potassium chloride": {
+      "name": "Potassium chloride",
+      "synonyms": [
+        "potassium",
+        "kcl"
+      ],
+      "class": [
+        "electrolyte"
+      ],
+      "external_ids": {}
+    },
+    "sodium bicarbonate": {
+      "name": "Sodium bicarbonate",
+      "synonyms": [
+        "baking soda"
+      ],
+      "class": [
+        "antacid"
+      ],
+      "external_ids": {}
+    },
+    "aluminium hydroxide": {
+      "name": "Aluminium hydroxide",
+      "synonyms": [
+        "aluminum hydroxide"
+      ],
+      "class": [
+        "antacid"
+      ],
+      "external_ids": {}
+    },
+    "magnesium hydroxide": {
+      "name": "Magnesium hydroxide",
+      "synonyms": [],
+      "class": [
+        "antacid",
+        "laxative"
+      ],
+      "external_ids": {}
+    },
+    "calcium acetate": {
+      "name": "Calcium acetate",
+      "synonyms": [],
+      "class": [
+        "phosphate binder"
+      ],
+      "external_ids": {}
+    },
+    "pregabalin": {
+      "name": "Pregabalin",
+      "synonyms": [],
+      "class": [
+        "antiepileptic",
+        "gabapentinoid",
+        "analgesic"
+      ],
+      "external_ids": {}
+    },
+    "gabapentin": {
+      "name": "Gabapentin",
+      "synonyms": [],
+      "class": [
+        "antiepileptic",
+        "gabapentinoid"
+      ],
+      "external_ids": {}
+    },
+    "cyclosporine": {
+      "name": "Cyclosporine",
+      "synonyms": [
+        "ciclosporin",
+        "cyclosporin"
+      ],
+      "class": [
+        "immunosuppressant"
+      ],
+      "external_ids": {}
+    },
+    "ritonavir": {
+      "name": "Ritonavir",
+      "synonyms": [],
+      "class": [
+        "antiviral"
+      ],
+      "external_ids": {}
+    },
+    "sucralfate": {
+      "name": "Sucralfate",
+      "synonyms": [],
+      "class": [
+        "antacid",
+        "ulcer healing"
+      ],
+      "external_ids": {}
+    },
+    "zinc sulfate": {
+      "name": "Zinc sulfate",
+      "synonyms": [
+        "zinc"
+      ],
+      "class": [
+        "mineral supplement"
+      ],
+      "external_ids": {}
+    },
+    "serratiopeptidase": {
+      "name": "Serratiopeptidase",
+      "synonyms": [
+        "serrapeptase"
+      ],
+      "class": [
+        "enzyme",
+        "anti-inflammatory"
+      ],
+      "external_ids": {}
+    },
+    "pivampicillin": {
+      "name": "Pivampicillin",
+      "synonyms": [],
+      "class": [
+        "antibiotic",
+        "penicillin"
+      ],
+      "external_ids": {}
+    },
+    "dihydrocodeine": {
+      "name": "Dihydrocodeine",
+      "synonyms": [],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "dihydromorphine": {
+      "name": "Dihydromorphine",
+      "synonyms": [],
+      "class": [
+        "opioid"
+      ],
+      "external_ids": {}
+    },
+    "sildenafil": {
+      "name": "Sildenafil",
+      "synonyms": [
+        "viagra",
+        "penegra",
+        "suhagra",
+        "sildenafil citrate",
+        "sildenafil ip"
+      ],
+      "class": [
+        "pde5 inhibitor",
+        "vasodilator"
+      ],
+      "external_ids": {}
+    },
+    "tadalafil": {
+      "name": "Tadalafil",
+      "synonyms": [
+        "cialis",
+        "tadacip",
+        "tadalafil ip"
+      ],
+      "class": [
+        "pde5 inhibitor",
+        "vasodilator"
+      ],
+      "external_ids": {}
+    }
+  }
+}
