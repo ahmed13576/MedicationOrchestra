@@ -749,6 +749,14 @@ Credit where the work is real — all of the following I re-ran and can vouch fo
   parse and knowledge-integrity checks — and nothing is `continue-on-error`.
 * **`check_doc_counts.py`** genuinely fails when a knowledge-base count is wrong
   (verified by editing a count and watching it exit 1), and is wired into pytest.
+* **A defect in the branch this review is based on, fixed by the reviewed branch.**
+  `monitoring_dashboard.json` was listed in `.gitignore` in the pre-branch tree, so
+  the file that `monitoring_setup.ps1` loads — and that
+  `backend/tests/test_deployment_scripts.py` asserts exists — was never committed:
+  the two tests passed on a working copy that happened to carry it and would have
+  failed in CI and for a fresh clone. This branch un-ignores and commits it
+  (commit `69eeeb2`, "ship the missing dashboard"). I have taken the same fix onto
+  the base branch rather than leave a red gate behind.
 * **The removal of `send_dose_reminder`** and the `model_capabilities.yaml`
   scaffolding; the client README; the client-side fixes for
   `flutter_timezone` ≥ 4 (`zone.identifier`), `DropdownButtonFormField.initialValue`
